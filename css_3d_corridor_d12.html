@@ -1,0 +1,1212 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSS 3D Corridor - Carbon Atom in D12</title>
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #080b12;
+  color: white;
+  font-family: system-ui, sans-serif;
+}
+
+#viewport {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  perspective: 800px;
+  perspective-origin: 50% 50%;
+  background: #080b12;
+  cursor: crosshair;
+}
+
+/* Shared perspective, separate logical and sprite layers. */
+
+#scene {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+
+#world, #sprites {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+}
+
+#sprites { pointer-events: none; }
+
+.section, .d12-object, .d12-shell, .atom-logical,
+.nucleus-orientation, .nucleus-spin, .electrons,
+.orbital-plane, .rail-spin, .orbit-spin {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  transform-style: preserve-3d;
+}
+
+/* Corridor */
+
+.face {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  backface-visibility: visible;
+}
+
+.floor {
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 69px,
+      #334155 70px 72px
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0 79px,
+      #334155 80px 82px
+    ),
+    #202936;
+}
+
+.ceiling {
+  background: #151c29;
+  border: 1px solid #293346;
+}
+
+.wall {
+  background: #39465c;
+  border: 2px solid #596981;
+}
+
+.pillar {
+  background: #e08a37;
+  border: 3px solid #ffc17c;
+  box-shadow: inset 0 0 20px #704015;
+}
+
+.painting {
+  background-image: url(
+    "https://pbs.twimg.com/profile_images/1424800318051786756/j1_PaN9L_400x400.jpg"
+  );
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border: 3px solid #ffc17c;
+  box-shadow: inset 0 0 20px #704015;
+}
+
+.marker {
+  background: #44b7bc;
+  border: 3px solid #b2ffff;
+}
+
+/* D12 shell */
+
+.d12-shell {
+  transition: transform 2.8s ease-in-out;
+}
+
+.d12-face {
+  position: absolute;
+  left: -110px;
+  top: -110px;
+  width: 220px;
+  height: 220px;
+  transform-style: preserve-3d;
+}
+
+.d12-face svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  backface-visibility: visible;
+}
+
+.d12-face polygon {
+  fill: rgba(95, 255, 103, .115);
+  stroke: rgba(255, 55, 55, .95);
+  stroke-width: 3;
+  stroke-linejoin: round;
+}
+
+.d12-number {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) translateZ(2px);
+  backface-visibility: hidden;
+  color: rgba(220, 240, 255, .8);
+  font-size: 23px;
+  font-weight: 600;
+  text-shadow: 0 0 8px rgba(100, 190, 255, .6);
+  pointer-events: none;
+}
+
+/* Logical carbon atom */
+
+.nucleus-orientation {
+  transform:
+    rotateX(var(--tx))
+    rotateY(var(--ty))
+    rotateZ(var(--tz));
+}
+
+.nucleus-spin {
+  animation: nucleus-turn var(--nucleus-period)
+    linear infinite;
+  animation-delay: var(--nucleus-delay);
+}
+
+@keyframes nucleus-turn {
+  from { transform: rotateZ(0deg); }
+  to   { transform: rotateZ(360deg); }
+}
+
+.orbital-plane {
+  transform:
+    rotateX(var(--tx))
+    rotateY(var(--ty))
+    rotateZ(var(--tz));
+}
+
+.rail-spin {
+  animation: rail-turn var(--rail-period)
+    linear infinite;
+  animation-delay: var(--start-delay);
+}
+
+@keyframes rail-turn {
+  from {
+    transform: rotate3d(
+      var(--ax), var(--ay), var(--az), 0deg
+    );
+  }
+  to {
+    transform: rotate3d(
+      var(--ax), var(--ay), var(--az), 360deg
+    );
+  }
+}
+
+.orbit-spin {
+  animation: orbit-turn var(--orbit-period)
+    linear infinite;
+  animation-direction: var(--direction);
+  animation-delay: var(--start-delay);
+}
+
+@keyframes orbit-turn {
+  from { transform: rotateZ(0deg); }
+  to   { transform: rotateZ(360deg); }
+}
+
+/* Camera-facing sprites */
+
+.sprite {
+  position: absolute;
+  border-radius: 50%;
+  backface-visibility: visible;
+  pointer-events: none;
+}
+
+.nucleon {
+  width: 18px;
+  height: 18px;
+  left: -9px;
+  top: -9px;
+  border: 1px solid rgba(255,255,255,.22);
+}
+
+.proton {
+  background: radial-gradient(
+    circle at 30% 25%,
+    #fff4ec,
+    #ff967a 30%,
+    #db3c36 68%,
+    #691522
+  );
+}
+
+.neutron {
+  background: radial-gradient(
+    circle at 30% 25%,
+    #e8faff,
+    #82d9ee 30%,
+    #2678b2 68%,
+    #102c60
+  );
+}
+
+.electron {
+  width: var(--size);
+  height: var(--size);
+  left: calc(var(--size) / -2);
+  top: calc(var(--size) / -2);
+  opacity: var(--alpha);
+
+  background: radial-gradient(
+    circle at 30% 25%,
+    white,
+    #c7f3ff 20%,
+    var(--color) 65%,
+    #143486
+  );
+}
+
+.electron.head {
+  box-shadow:
+    0 0 8px var(--color),
+    0 0 17px var(--color);
+}
+
+/* HUD */
+
+#hud {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  pointer-events: none;
+  text-shadow: 0 1px 4px black;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+#hud strong { font-size: 18px; }
+#position { color: #aee6ff; }
+
+#crosshair {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: .65;
+  font-size: 22px;
+}
+
+#hint {
+  position: fixed;
+  bottom: 25px;
+  width: 100%;
+  text-align: center;
+  pointer-events: none;
+  color: #cbd5e1;
+}
+</style>
+</head>
+
+<body>
+
+<div id="viewport">
+  <div id="scene">
+    <div id="world"></div>
+    <div id="sprites"></div>
+  </div>
+</div>
+
+<div id="hud">
+  <strong>CSS 3D Corridor · Carbon-12</strong>
+  <div>WASD: Move</div>
+  <div>Mouse: Look around</div>
+  <div>Shift: Run</div>
+  <div>Arrow keys: Rotate camera</div>
+  <div>Esc: Release mouse</div>
+  <div>Carbon atom: 6 protons · 6 neutrons · 6 electrons</div>
+  <div id="position"></div>
+</div>
+
+<div id="crosshair">+</div>
+<div id="hint">Click anywhere to control the camera</div>
+
+<script>
+const viewport = document.getElementById("viewport");
+const world = document.getElementById("world");
+const sprites = document.getElementById("sprites");
+const positionLabel = document.getElementById("position");
+
+// Corridor dimensions and controls
+
+const WIDTH = 660;
+const HEIGHT = 400;
+const LENGTH = 700;
+const FLOOR_Y = 150;
+const PERSPECTIVE = 800;
+const SECTION_COUNT = 16;
+
+// D12 position inside its section
+
+const D12_X = 0;
+const D12_Y = -50;
+const D12_Z = -600;
+
+const camera = {
+  x: 0,
+  y: 0,
+  z: 0,
+  yaw: 0,
+  pitch: 0
+};
+
+const keys = new Set();
+const sections = [];
+const shells = [];
+
+function random(min, max) {
+  return Math.random() * (max - min) + min;
+}
+
+function create(className, parent) {
+  const node = document.createElement("div");
+  node.className = className;
+  parent.appendChild(node);
+  return node;
+}
+
+function createFace(parent, className, width, height, transform) {
+  const face = create("face " + className, parent);
+  face.style.width = width + "px";
+  face.style.height = height + "px";
+  face.style.transform =
+    transform + " translate(-50%, -50%)";
+  return face;
+}
+
+/* ==========================================
+   DODECAHEDRON GEOMETRY
+   ========================================== */
+
+const PHI = (1 + Math.sqrt(5)) / 2;
+const D12_SCALE = 78;
+
+const add = (a, b) =>
+  a.map((v, i) => v + b[i]);
+
+const sub = (a, b) =>
+  a.map((v, i) => v - b[i]);
+
+const mul = (a, s) =>
+  a.map(v => v * s);
+
+const dot = (a, b) =>
+  a.reduce((sum, v, i) => sum + v * b[i], 0);
+
+const cross = (a, b) => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0]
+];
+
+const normalize = v =>
+  mul(v, 1 / Math.hypot(...v));
+
+// The 20 vertices
+
+const vertices = [];
+
+for (const x of [-1, 1])
+for (const y of [-1, 1])
+for (const z of [-1, 1])
+  vertices.push([x, y, z]);
+
+for (const y of [-1, 1])
+for (const z of [-1, 1])
+  vertices.push([0, y / PHI, z * PHI]);
+
+for (const x of [-1, 1])
+for (const y of [-1, 1])
+  vertices.push([x / PHI, y * PHI, 0]);
+
+for (const x of [-1, 1])
+for (const z of [-1, 1])
+  vertices.push([x * PHI, 0, z / PHI]);
+
+// The 12 outward face normals
+
+const normals = [];
+
+for (const y of [-1, 1])
+for (const z of [-1, 1])
+  normals.push([0, y * PHI, z]);
+
+for (const x of [-1, 1])
+for (const z of [-1, 1])
+  normals.push([x, 0, z * PHI]);
+
+for (const x of [-1, 1])
+for (const y of [-1, 1])
+  normals.push([x * PHI, y, 0]);
+
+function calculateD12Face(normal, index) {
+  const n = normalize(normal);
+
+  const maxDistance = Math.max(
+    ...vertices.map(v => dot(v, n))
+  );
+
+  const points = vertices.filter(
+    v => Math.abs(dot(v, n) - maxDistance) < .00001
+  );
+
+  const center = mul(
+    points.reduce(
+      (sum, p) => add(sum, p),
+      [0, 0, 0]
+    ),
+    1 / points.length
+  );
+
+  const u = normalize(cross([0, 1, 0], n));
+  const v = cross(n, u);
+
+  const projected = points.map(p => {
+    const d = sub(p, center);
+
+    return [
+      dot(d, u) * D12_SCALE,
+      dot(d, v) * D12_SCALE
+    ];
+  });
+
+  projected.sort((a, b) =>
+    Math.atan2(a[1], a[0]) -
+    Math.atan2(b[1], b[0])
+  );
+
+  return {
+    center: mul(center, D12_SCALE),
+    polygonPoints: projected
+      .map(([x, y]) => `${110 + x},${110 + y}`)
+      .join(" "),
+    yaw: Math.atan2(n[0], n[2]),
+    pitch: -Math.asin(n[1]),
+    number: index + 1
+  };
+}
+
+const D12_FACES = normals.map(calculateD12Face);
+
+function createD12Face(data) {
+  const face = document.createElement("div");
+  face.className = "d12-face";
+
+  const svgNS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNS, "svg");
+  svg.setAttribute("viewBox", "0 0 220 220");
+
+  const polygon = document.createElementNS(
+    svgNS, "polygon"
+  );
+
+  polygon.setAttribute("points", data.polygonPoints);
+  svg.appendChild(polygon);
+  face.appendChild(svg);
+
+  const number = create("d12-number", face);
+  number.textContent = data.number;
+
+  const [x, y, z] = data.center;
+
+  face.style.transform = `
+    translate3d(${x}px, ${y}px, ${z}px)
+    rotateY(${data.yaw}rad)
+    rotateX(${data.pitch}rad)
+  `;
+
+  return face;
+}
+
+function createD12() {
+  const object = create("d12-object", world);
+
+  object.style.transform = `
+    translate3d(${D12_X}px, ${D12_Y}px, ${D12_Z}px)
+  `;
+
+  // The D12 shell rotates independently of the atom.
+
+  const shell = create("d12-shell", object);
+
+  for (const data of D12_FACES) {
+    shell.appendChild(createD12Face(data));
+  }
+
+  shells.push({
+    element: shell,
+    rx: -20,
+    ry: 30,
+    rz: 0
+  });
+
+  // The carbon atom stays at the D12's center.
+
+  const logical = create("atom-logical", object);
+  createCarbonAtom(logical);
+
+  return object;
+}
+
+/* ==========================================
+   CARBON-12 ATOM
+   ========================================== */
+
+const CARBON_PROTONS = 6;
+const CARBON_NEUTRONS = 6;
+
+const ELECTRON_COLORS = [
+  "#55c8ff",
+  "#70f7d4",
+  "#c38bff",
+  "#ff8fc8",
+  "#ffe17d",
+  "#81a7ff"
+];
+
+// Six visible sprites per electron.
+
+const TRAIL = [
+  { lag: .24, size: 3, alpha: .08 },
+  { lag: .18, size: 4, alpha: .16 },
+  { lag: .13, size: 5, alpha: .29 },
+  { lag: .09, size: 7, alpha: .45 },
+  { lag: .045, size: 9, alpha: .68 },
+  { lag: 0, size: 13, alpha: 1, head: true }
+];
+
+const DEG = 180 / Math.PI;
+
+const nucleonRecords = [];
+const electronRecords = [];
+
+let nucleus = null;
+
+/* Matrix helpers */
+
+function matrixOf(element) {
+  const transform =
+    getComputedStyle(element).transform;
+
+  return transform === "none"
+    ? new DOMMatrix()
+    : new DOMMatrix(transform);
+}
+
+function orientationMatrix(x, y, z) {
+  return new DOMMatrix()
+    .rotateSelf(x, 0, 0)
+    .rotateSelf(0, y, 0)
+    .rotateSelf(0, 0, z);
+}
+
+/* One-time nucleon positions */
+
+function generateNucleonPositions(count) {
+  const step = 17.5 / Math.sqrt(2);
+  const range = Math.ceil(Math.cbrt(count) * 1.5) + 3;
+
+  const offset = {
+    x: random(-step / 2, step / 2),
+    y: random(-step / 2, step / 2),
+    z: random(-step / 2, step / 2)
+  };
+
+  const points = [];
+
+  // Close-packed FCC structure.
+
+  for (let i = -range; i <= range; i++) {
+    for (let j = -range; j <= range; j++) {
+      for (let k = -range; k <= range; k++) {
+        if ((i + j + k) % 2 !== 0) continue;
+
+        const x = i * step - offset.x;
+        const y = j * step - offset.y;
+        const z = k * step - offset.z;
+
+        points.push({
+          x, y, z,
+          r2: x*x + y*y + z*z
+        });
+      }
+    }
+  }
+
+  points.sort((a, b) => a.r2 - b.r2);
+
+  const positions = points.slice(0, count);
+
+  const center = positions.reduce(
+    (s, p) => ({
+      x: s.x + p.x,
+      y: s.y + p.y,
+      z: s.z + p.z
+    }),
+    { x: 0, y: 0, z: 0 }
+  );
+
+  center.x /= count;
+  center.y /= count;
+  center.z /= count;
+
+  return positions.map(p => new DOMPoint(
+    p.x - center.x + random(-.25, .25),
+    p.y - center.y + random(-.25, .25),
+    p.z - center.z + random(-.25, .25)
+  ));
+}
+
+function randomAxis() {
+  const z = random(-.8, .8);
+  const a = random(0, Math.PI * 2);
+  const r = Math.sqrt(1 - z*z);
+
+  return {
+    x: r * Math.cos(a),
+    y: r * Math.sin(a),
+    z
+  };
+}
+
+/* Create the carbon atom */
+
+function createCarbonAtom(parent) {
+  const nuclearOrientation = create(
+    "nucleus-orientation",
+    parent
+  );
+
+  const x = random(-180, 180);
+  const y = random(-180, 180);
+  const z = random(-180, 180);
+
+  nuclearOrientation.style.setProperty(
+    "--tx", x + "deg"
+  );
+  nuclearOrientation.style.setProperty(
+    "--ty", y + "deg"
+  );
+  nuclearOrientation.style.setProperty(
+    "--tz", z + "deg"
+  );
+
+  nuclearOrientation.style.setProperty(
+    "--nucleus-period",
+    random(13, 22) + "s"
+  );
+
+  nuclearOrientation.style.setProperty(
+    "--nucleus-delay",
+    -random(0, 20) + "s"
+  );
+
+  const spin = create(
+    "nucleus-spin",
+    nuclearOrientation
+  );
+
+  nucleus = {
+    spin,
+    orientation: orientationMatrix(x, y, z)
+  };
+
+  // 6 protons + 6 neutrons, randomly mixed.
+
+  const types = [
+    ...Array(CARBON_PROTONS).fill("proton"),
+    ...Array(CARBON_NEUTRONS).fill("neutron")
+  ];
+
+  for (let i = types.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [types[i], types[j]] = [types[j], types[i]];
+  }
+
+  for (const [i, position] of
+    generateNucleonPositions(12).entries()) {
+
+    const sprite = create(
+      "sprite nucleon " + types[i],
+      sprites
+    );
+
+    nucleonRecords.push({ sprite, position });
+  }
+
+  // Six electrons, each with its own CSS orbit.
+
+  const electronRoot = create("electrons", parent);
+
+  for (let i = 0; i < 6; i++) {
+    const axis = randomAxis();
+
+    // Smaller radii to fit inside the D12.
+
+    const radius =
+      49 + (i + Math.random()) / 6 * 29;
+
+    const tx = random(-180, 180);
+    const ty = random(-180, 180);
+    const tz = random(-180, 180);
+
+    const railPeriod = random(7, 14);
+
+    const orbitPeriod =
+      Math.PI * 2 * radius / 230;
+
+    const direction =
+      Math.random() < .5 ? 1 : -1;
+
+    const initialAge = random(0, 40);
+
+    const plane = create(
+      "orbital-plane",
+      electronRoot
+    );
+
+    plane.style.setProperty("--tx", tx + "deg");
+    plane.style.setProperty("--ty", ty + "deg");
+    plane.style.setProperty("--tz", tz + "deg");
+
+    plane.style.setProperty("--ax", axis.x);
+    plane.style.setProperty("--ay", axis.y);
+    plane.style.setProperty("--az", axis.z);
+
+    plane.style.setProperty(
+      "--rail-period", railPeriod + "s"
+    );
+
+    plane.style.setProperty(
+      "--orbit-period", orbitPeriod + "s"
+    );
+
+    plane.style.setProperty(
+      "--start-delay", -initialAge + "s"
+    );
+
+    plane.style.setProperty(
+      "--direction",
+      direction === 1 ? "normal" : "reverse"
+    );
+
+    const rail = create("rail-spin", plane);
+    const orbit = create("orbit-spin", rail);
+
+    // The six trail sprites share these two
+    // CSS animations and use time-offset positions.
+
+    const trails = TRAIL.map(spec => {
+      const sprite = create(
+        "sprite electron" +
+        (spec.head ? " head" : ""),
+        sprites
+      );
+
+      sprite.style.setProperty(
+        "--size", spec.size + "px"
+      );
+
+      sprite.style.setProperty(
+        "--alpha", spec.alpha
+      );
+
+      sprite.style.setProperty(
+        "--color", ELECTRON_COLORS[i]
+      );
+
+      const railOffset = new DOMMatrix()
+        .rotateAxisAngleSelf(
+          axis.x,
+          axis.y,
+          axis.z,
+          -360 * spec.lag / railPeriod
+        );
+
+      const angle =
+        -direction * 2 * Math.PI *
+        spec.lag / orbitPeriod;
+
+      const orbitPoint = new DOMPoint(
+        radius * Math.cos(angle),
+        radius * Math.sin(angle),
+        0
+      );
+
+      return {
+        sprite,
+        railOffset,
+        orbitPoint
+      };
+    });
+
+    electronRecords.push({
+      rail,
+      orbit,
+      planeMatrix:
+        orientationMatrix(tx, ty, tz),
+      trails
+    });
+  }
+}
+
+/* ==========================================
+   CORRIDOR SECTIONS
+   ========================================== */
+
+function createSection(slot) {
+  const section = create("section", world);
+  section.sectionZ = 0;
+
+  createFace(
+    section, "floor",
+    WIDTH, LENGTH,
+    `translateY(${FLOOR_Y}px) rotateX(90deg)`
+  );
+
+  createFace(
+    section, "ceiling",
+    WIDTH, LENGTH,
+    `translateY(${FLOOR_Y - HEIGHT}px) rotateX(-90deg)`
+  );
+
+  createFace(
+    section, "wall",
+    LENGTH, HEIGHT,
+    `translate3d(${-WIDTH / 2}px, -50px, 0px)
+     rotateY(90deg)`
+  );
+
+  createFace(
+    section, "wall",
+    LENGTH, HEIGHT,
+    `translate3d(${WIDTH / 2}px, -50px, 0px)
+     rotateY(-90deg)`
+  );
+
+  createFace(
+    section, "painting",
+    80, 80,
+    `translate3d(${WIDTH / 2 - 2}px, -50px, 0px)
+     rotateY(-90deg)`
+  );
+
+  createFace(
+    section, "pillar",
+    80, 160,
+    `translate3d(-190px, ${FLOOR_Y - 80}px, -140px)`
+  );
+
+  createFace(
+    section, "marker",
+    100, 110,
+    `translate3d(190px, ${FLOOR_Y - 55}px, 190px)
+     rotateY(-25deg)`
+  );
+
+  // Keep the D12 on its original section slot.
+
+  return section;
+}
+
+for (let i = 0; i < SECTION_COUNT; i++) {
+  sections.push(createSection(i));
+}
+
+let previousSection = null;
+
+function updateCorridor() {
+  const currentSection = Math.floor(
+    -camera.z / LENGTH
+  );
+
+  if (currentSection === previousSection) return;
+  previousSection = currentSection;
+
+  sections.forEach((section, slot) => {
+    const index = currentSection + slot - 3;
+    const z = -(index * LENGTH + LENGTH / 2);
+
+    section.sectionZ = z;
+    section.style.transform = `translateZ(${z}px)`;
+  });
+}
+
+/* ==========================================
+   D12 SHELL ROTATION
+   ========================================== */
+
+function spinD12s() {
+  for (const shell of shells) {
+    shell.rx += random(60, 170) *
+      (Math.random() < .5 ? -1 : 1);
+
+    shell.ry += random(60, 170) *
+      (Math.random() < .5 ? -1 : 1);
+
+    shell.rz += random(35, 120) *
+      (Math.random() < .5 ? -1 : 1);
+
+    shell.element.style.transform = `
+      rotateX(${shell.rx}deg)
+      rotateY(${shell.ry}deg)
+      rotateZ(${shell.rz}deg)
+    `;
+  }
+}
+
+createD12();
+spinD12s();
+setInterval(spinD12s, 3000);
+
+/* ==========================================
+   CAMERA-SPACE PARTICLE RENDERING
+   ========================================== */
+
+function cameraMatrix() {
+  return new DOMMatrix()
+    .translateSelf(0, 0, PERSPECTIVE)
+    .rotateSelf(-camera.pitch * DEG, 0, 0)
+    .rotateSelf(0, -camera.yaw * DEG, 0)
+    .translateSelf(
+      -camera.x,
+      -camera.y,
+      -camera.z
+    );
+}
+
+function updateAtomSprites() {
+  /*
+   * Shared camera + corridor section + D12
+   * translation.
+   *
+   * The D12 can move when its section is
+   * recycled, and the atom follows it.
+   */
+
+  const view = cameraMatrix().translateSelf(
+    D12_X,
+    D12_Y,
+    D12_Z
+  );
+
+  /*
+   * Read the CSS animations before writing
+   * any particle transforms.
+   */
+
+  const nuclearMatrix = view
+    .multiply(nucleus.orientation)
+    .multiply(matrixOf(nucleus.spin));
+
+  const nucleonPositions = nucleonRecords.map(
+    record =>
+      record.position.matrixTransform(nuclearMatrix)
+  );
+
+  const electronPositions = electronRecords.map(
+    electron => {
+      const rail = matrixOf(electron.rail);
+      const orbit = matrixOf(electron.orbit);
+
+      const base = view
+        .multiply(electron.planeMatrix)
+        .multiply(rail);
+
+      return electron.trails.map(trail => {
+        const current =
+          trail.orbitPoint.matrixTransform(orbit);
+
+        const past =
+          current.matrixTransform(trail.railOffset);
+
+        return past.matrixTransform(base);
+      });
+    }
+  );
+
+  /*
+   * Transfer only the final positions.
+   * No sprite rotations or inverse animations.
+   */
+
+  for (let i = 0; i < nucleonRecords.length; i++) {
+    const p = nucleonPositions[i];
+
+    nucleonRecords[i].sprite.style.transform = `
+      translate3d(${p.x}px, ${p.y}px, ${p.z}px)
+    `;
+  }
+
+  for (let i = 0; i < electronRecords.length; i++) {
+    const electron = electronRecords[i];
+
+    for (let j = 0; j < electron.trails.length; j++) {
+      const p = electronPositions[i][j];
+
+      electron.trails[j].sprite.style.transform = `
+        translate3d(${p.x}px, ${p.y}px, ${p.z}px)
+      `;
+    }
+  }
+}
+
+/* ==========================================
+   ORIGINAL CORRIDOR CONTROLS
+   ========================================== */
+
+viewport.addEventListener("click", () => {
+  viewport.requestPointerLock();
+});
+
+document.addEventListener("pointerlockchange", () => {
+  document.getElementById("hint").style.display =
+    document.pointerLockElement === viewport
+      ? "none"
+      : "block";
+});
+
+document.addEventListener("mousemove", event => {
+  if (document.pointerLockElement !== viewport) return;
+
+  camera.yaw -= event.movementX * .0025;
+  camera.pitch += event.movementY * .0025;
+
+  camera.pitch = Math.max(
+    -Math.PI / 2 + .05,
+    Math.min(Math.PI / 2 - .05, camera.pitch)
+  );
+});
+
+document.addEventListener("keydown", event => {
+  keys.add(event.code);
+
+  if (
+    event.code.startsWith("Arrow") ||
+    event.code === "Space"
+  ) {
+    event.preventDefault();
+  }
+});
+
+document.addEventListener("keyup", event => {
+  keys.delete(event.code);
+});
+
+window.addEventListener("blur", () => keys.clear());
+
+/* ==========================================
+   MAIN ANIMATION LOOP
+   ========================================== */
+
+let previousTime = performance.now();
+
+function animate(now) {
+  const dt = Math.min(
+    (now - previousTime) / 1000,
+    .05
+  );
+
+  previousTime = now;
+
+  const speed = keys.has("ShiftLeft")
+    ? 650
+    : 280;
+
+  let forward =
+    Number(keys.has("KeyW")) -
+    Number(keys.has("KeyS"));
+
+  let strafe =
+    Number(keys.has("KeyD")) -
+    Number(keys.has("KeyA"));
+
+  // Preserve the corridor's horizontal movement.
+
+  const length = Math.hypot(forward, strafe) || 1;
+  forward /= length;
+  strafe /= length;
+
+  camera.x += (
+    -Math.sin(camera.yaw) * forward +
+     Math.cos(camera.yaw) * strafe
+  ) * speed * dt;
+
+  camera.z += (
+    -Math.cos(camera.yaw) * forward -
+     Math.sin(camera.yaw) * strafe
+  ) * speed * dt;
+
+  // Corridor wall boundaries.
+
+  camera.x = Math.max(
+    -WIDTH / 2 + 50,
+    Math.min(WIDTH / 2 - 50, camera.x)
+  );
+
+  // Arrow-key rotation.
+
+  if (keys.has("ArrowLeft"))
+    camera.yaw += dt * 1.5;
+
+  if (keys.has("ArrowRight"))
+    camera.yaw -= dt * 1.5;
+
+  if (keys.has("ArrowUp"))
+    camera.pitch -= dt * 1.5;
+
+  if (keys.has("ArrowDown"))
+    camera.pitch += dt * 1.5;
+
+  camera.pitch = Math.max(
+    -Math.PI / 2 + .05,
+    Math.min(Math.PI / 2 - .05, camera.pitch)
+  );
+
+  // Recycle sections during movement.
+
+  updateCorridor();
+
+  // Original corridor camera transformation.
+
+  world.style.transform = `
+    translateZ(${PERSPECTIVE}px)
+    rotateX(${-camera.pitch}rad)
+    rotateY(${-camera.yaw}rad)
+    translate3d(
+      ${-camera.x}px,
+      ${-camera.y}px,
+      ${-camera.z}px
+    )
+  `;
+
+  // Equivalent camera transform applied to
+  // the carbon atom's positions only.
+
+  updateAtomSprites();
+
+  positionLabel.textContent =
+    `Position: ${Math.round(camera.x)}, ` +
+    `${Math.round(camera.z)}`;
+
+  requestAnimationFrame(animate);
+}
+
+updateCorridor();
+requestAnimationFrame(animate);
+
+</script>
+</body>
+</html>
