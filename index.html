@@ -6,6 +6,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CSS 3D Corridor - Carbon Atom in D12</title>
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Almendra+SC&display=swap');
+
 * { box-sizing: border-box; }
 
 body {
@@ -138,8 +140,8 @@ body {
 }
 
 .d12-face polygon {
-  fill: rgba(95, 255, 103, .115);
-  stroke: rgba(255, 55, 55, .95);
+  fill: rgba(43, 79, 45, 0.266);
+  stroke: rgba(196, 101, 254, 0.95);
   stroke-width: 3;
   stroke-linejoin: round;
 }
@@ -150,10 +152,11 @@ body {
   top: 50%;
   transform: translate(-50%, -50%) translateZ(2px);
   backface-visibility: hidden;
-  color: rgba(220, 240, 255, .8);
-  font-size: 23px;
+  color: rgb(255, 204, 0);
+  font-family: 'Almendra SC', serif;
+  font-size: 40px;
   font-weight: 600;
-  text-shadow: 0 0 8px rgba(100, 190, 255, .6);
+  text-shadow: 0 0 8px rgba(238, 255, 0, 0.6);
   pointer-events: none;
 }
 
@@ -488,6 +491,7 @@ function calculateD12Face(normal, index) {
 
   return {
     center: mul(center, D12_SCALE),
+    normal: n,
     polygonPoints: projected
       .map(([x, y]) => `${110 + x},${110 + y}`)
       .join(" "),
@@ -516,8 +520,12 @@ function createD12Face(data) {
   face.appendChild(svg);
 
   const number = create("d12-number", face);
-  number.textContent = data.number;
 
+  switch (data.number) {
+    case 6: number.textContent = "6."; break;
+    case 9: number.textContent = "9."; break;
+    default: number.textContent = data.number; break;
+  }
   const [x, y, z] = data.center;
 
   face.style.transform = `
@@ -539,13 +547,21 @@ function createD12() {
   // The D12 shell rotates independently of the atom.
 
   const shell = create("d12-shell", object);
+  const faces = [];
 
   for (const data of D12_FACES) {
-    shell.appendChild(createD12Face(data));
+    const face = createD12Face(data);
+    shell.appendChild(face);
+    faces.push({
+      polygon: face.querySelector("polygon"),
+      normal: data.normal,
+      center: data.center
+    });
   }
 
   shells.push({
     element: shell,
+    faces,
     rx: -20,
     ry: 30,
     rz: 0
@@ -602,6 +618,44 @@ function matrixOf(element) {
   return transform === "none"
     ? new DOMMatrix()
     : new DOMMatrix(transform);
+}
+
+// Camera-relative glass opacity: front-on is clear, grazing is opaque.
+const GLASS_FRONT_ALPHA = 0.35;
+const GLASS_EDGE_ALPHA = 1;
+const GLASS_FALLOFF = 4;
+
+function glassUpdates() {
+  const updates = [];
+
+  for (const shell of shells) {
+    const rotation = matrixOf(shell.element);
+
+    for (const face of shell.faces) {
+      const n = new DOMPoint(...face.normal, 0)
+        .matrixTransform(rotation);
+      const c = new DOMPoint(...face.center)
+        .matrixTransform(rotation);
+
+      const dx = camera.x - (D12_X + c.x);
+      const dy = camera.y - (D12_Y + c.y);
+      const dz = camera.z - (D12_Z + c.z);
+      const distance = Math.hypot(dx, dy, dz) || 1;
+      const cosine = Math.min(1, Math.abs(
+        (n.x * dx + n.y * dy + n.z * dz) / distance
+      ));
+      const alpha = GLASS_FRONT_ALPHA +
+        (GLASS_EDGE_ALPHA - GLASS_FRONT_ALPHA) *
+        Math.pow(1 - cosine, GLASS_FALLOFF);
+
+      updates.push([
+        face.polygon,
+        `rgba(43, 79, 45, ${alpha.toFixed(3)})`
+      ]);
+    }
+  }
+
+  return updates;
 }
 
 function orientationMatrix(x, y, z) {
@@ -987,6 +1041,8 @@ function cameraMatrix() {
 }
 
 function updateAtomSprites() {
+  const glass = glassUpdates();
+
   /*
    * Shared camera + corridor section + D12
    * translation.
@@ -1058,6 +1114,12 @@ function updateAtomSprites() {
       electron.trails[j].sprite.style.transform = `
         translate3d(${p.x}px, ${p.y}px, ${p.z}px)
       `;
+    }
+  }
+
+  for (const [polygon, fill] of glass) {
+    if (polygon.style.fill !== fill) {
+      polygon.style.fill = fill;
     }
   }
 }
