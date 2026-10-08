@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CSS 3D Corridor - Carbon Atom in D12</title>
+<title>CSS 3D Corridor - Atom in D12</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Almendra+SC&display=swap');
 
@@ -322,13 +322,13 @@ body {
 </div>
 
 <div id="hud">
-  <strong>CSS 3D Corridor · Carbon-12</strong>
+  <strong>CSS 3D Corridor · Atom</strong>
   <div>WASD: Move</div>
   <div>Mouse: Look around</div>
   <div>Shift: Run</div>
   <div>Arrow keys: Rotate camera</div>
   <div>Esc: Release mouse</div>
-  <div>Carbon atom: 6 protons · 6 neutrons · 6 electrons</div>
+  <div id="atom-counts"></div>
   <div id="position"></div>
 </div>
 
@@ -576,11 +576,34 @@ function createD12() {
 }
 
 /* ==========================================
-   CARBON-12 ATOM
+   ATOM
    ========================================== */
 
-const CARBON_PROTONS = 6;
-const CARBON_NEUTRONS = 6;
+const PROTONS = 30;
+
+function neutronCount(protons) {
+  const isotopeMass = {
+    1: 1, 2: 4, 6: 12, 8: 16,
+    26: 56, 79: 197, 82: 208, 92: 238
+  };
+
+  let mass = isotopeMass[protons];
+
+  if (mass === undefined) {
+    mass = protons * 2;
+    for (let i = 0; i < 8; i++) {
+      mass = protons * (2 + .0154 * mass ** (2 / 3));
+    }
+    mass = Math.round(mass);
+  }
+
+  return Math.max(0, mass - protons);
+}
+
+const NEUTRONS = neutronCount(PROTONS);
+
+document.getElementById("atom-counts").textContent =
+  `Atom: ${PROTONS} protons · ${NEUTRONS} neutrons · ${PROTONS} electrons`;
 
 const ELECTRON_COLORS = [
   "#55c8ff",
@@ -776,11 +799,11 @@ function createCarbonAtom(parent) {
     orientation: orientationMatrix(x, y, z)
   };
 
-  // 6 protons + 6 neutrons, randomly mixed.
+  // Protons and neutrons, randomly mixed.
 
   const types = [
-    ...Array(CARBON_PROTONS).fill("proton"),
-    ...Array(CARBON_NEUTRONS).fill("neutron")
+    ...Array(PROTONS).fill("proton"),
+    ...Array(NEUTRONS).fill("neutron")
   ];
 
   for (let i = types.length - 1; i > 0; i--) {
@@ -789,7 +812,7 @@ function createCarbonAtom(parent) {
   }
 
   for (const [i, position] of
-    generateNucleonPositions(12).entries()) {
+    generateNucleonPositions(PROTONS + NEUTRONS).entries()) {
 
     const sprite = create(
       "sprite nucleon " + types[i],
@@ -799,17 +822,17 @@ function createCarbonAtom(parent) {
     nucleonRecords.push({ sprite, position });
   }
 
-  // Six electrons, each with its own CSS orbit.
+  // One electron per proton, each with its own CSS orbit.
 
   const electronRoot = create("electrons", parent);
 
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < PROTONS; i++) {
     const axis = randomAxis();
 
     // Smaller radii to fit inside the D12.
 
     const radius =
-      49 + (i + Math.random()) / 6 * 29;
+      49 + (i + Math.random()) / PROTONS * 29;
 
     const tx = random(-180, 180);
     const ty = random(-180, 180);
@@ -877,7 +900,7 @@ function createCarbonAtom(parent) {
       );
 
       sprite.style.setProperty(
-        "--color", ELECTRON_COLORS[i]
+        "--color", ELECTRON_COLORS[i % ELECTRON_COLORS.length]
       );
 
       const railOffset = new DOMMatrix()
