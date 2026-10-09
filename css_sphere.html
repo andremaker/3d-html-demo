@@ -73,14 +73,7 @@
     position: absolute;
     border-radius: 50%;
     backface-visibility: visible;
-    background:
-      radial-gradient(circle at 29% 23%, rgba(255,255,255,.92), transparent 26%),
-      radial-gradient(circle at 67% 72%, rgba(15,41,83,.55), transparent 56%),
-      radial-gradient(circle at center,
-        rgba(88,205,235,.45) 0%,
-        rgba(44,142,206,.50) 55%,
-        rgba(132,237,250,.84) 91%,
-        rgba(239,253,255,.98) 100%);
+    background: url("earth.png") center / 100% 100% no-repeat;
   }
 
   .sphere-band.debug {
@@ -95,8 +88,8 @@
     background-image: url("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR9NegJXKOBrtqthf1dI23hO7yxKISMksEt6o16c6SacF1dNBItaMfCyu0&s=10");
     background-repeat: no-repeat;
     image-rendering: auto;
-    box-shadow:
-      inset 0 0 0 0.5px rgba(255,255,255,.08);
+    box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.08);
+    transform-style: preserve-3d;
   }
 
   .pillar-cap {
@@ -302,8 +295,8 @@
 <header>
   <h1>CSS 3D sphere + textured cylinder</h1>
   <p>
-    The sphere uses camera-facing depth bands. The pillar is a bigger cylinder made from vertical slices using your provided striped image.
-    Move the pillar horizontally to see the texture lines curve relative to the camera center.
+    The sphere uses camera-facing depth bands. The pillar uses tangent slices around
+    the full circumference, with one texture stretched across both halves.
   </p>
 </header>
 
@@ -313,7 +306,7 @@
       <strong>Scene</strong>
       <div>Fixed camera at center</div>
       <div>Sphere: depth-band sprite</div>
-      <div>Pillar: cylindrical slices</div>
+      <div>Pillar: full cylindrical surface</div>
       <div>Positive Z = closer to camera</div>
     </div>
 
@@ -327,8 +320,10 @@
     </div>
 
     <div class="crosshair"></div>
+
     <div class="note">
-      Move and rotate the pillar on all three axes to inspect its perspective-distorted texture.
+      The pillar now has both front and back surfaces. Rotate it on all three axes
+      to inspect the complete cylinder.
     </div>
   </div>
 
@@ -401,7 +396,7 @@
       </div>
 
       <div class="control">
-        <label for="pillar-slices">Slices <span class="value" id="pillar-slices-value">28</span></label>
+        <label for="pillar-slices">Slices per half <span class="value" id="pillar-slices-value">28</span></label>
         <input id="pillar-slices" type="range" min="8" max="56" step="2" value="28">
       </div>
 
@@ -418,7 +413,6 @@
 
     <div class="group">
       <button id="reset">Reset all</button>
-
       <div class="info" id="info"></div>
     </div>
   </div>
@@ -543,19 +537,25 @@ function rebuildPillar() {
   const radius = +pillarInputs.radius.value;
   const height = +pillarInputs.height.value;
   const count = +pillarInputs.slices.value;
-
-  // Fixed full overlap, per your request.
   const overlap = 2;
 
-  for (let i = 0; i < count; i++) {
-    const inner = -radius + (2 * radius * i / count);
-    const outer = -radius + (2 * radius * (i + 1) / count);
+  // One image now spans the complete 360-degree circumference.
+  const fullArcLength = 2 * Math.PI * radius;
+  const textureSliceWidth = fullArcLength / (count * 2);
+  const deltaTheta = Math.PI / count;
 
-    const expandedInner = Math.max(-radius, inner - overlap);
-    const expandedOuter = Math.min(radius, outer + overlap);
+  // First 'count' strips form the front half.
+  // The remaining 'count' strips continue around the back half.
+  for (let i = 0; i < count * 2; i++) {
+    const theta0 = -Math.PI / 2 + i * deltaTheta;
+    const theta1 = theta0 + deltaTheta;
+    const thetaMid = (theta0 + theta1) / 2;
 
-    const midpoint = (inner + outer) / 2;
-    const depth = Math.sqrt(radius * radius - midpoint * midpoint);
+    const x = radius * Math.sin(thetaMid);
+    const z = radius * Math.cos(thetaMid);
+
+    const baseWidth = 2 * radius * Math.tan(deltaTheta / 2);
+    const rawWidth = baseWidth + overlap * 2;
 
     const slice = document.createElement("div");
     slice.className = "pillar-slice";
@@ -563,18 +563,16 @@ function rebuildPillar() {
 
     pillarSliceRecords.push({
       el: slice,
-      radius,
-      height,
-      inner,
-      outer,
-      expandedInner,
-      expandedOuter,
-      midpoint,
-      depth
+      x,
+      z,
+      thetaMid,
+      rawWidth,
+      textureOffset: i * textureSliceWidth - overlap,
+      textureWidth: fullArcLength,
+      height
     });
   }
 
-  // Top and bottom caps just for clarity.
   const capTop = document.createElement("div");
   capTop.className = "pillar-cap";
   capTop.dataset.cap = "top";
@@ -592,36 +590,31 @@ function updatePillar() {
   const objectX = +pillarInputs.x.value;
   const objectY = +pillarInputs.y.value;
   const objectZ = +pillarInputs.z.value;
-  const tilt = +pillarInputs.tilt.value;
+  const rotateX = +pillarInputs.tilt.value;
   const rotateY = +pillarInputs.rotateY.value;
   const rotateZ = +pillarInputs.rotateZ.value;
   const radius = +pillarInputs.radius.value;
   const height = +pillarInputs.height.value;
-  const distance = PERSPECTIVE - worldDepth() - objectZ;
 
   pillarEl.style.transform =
-    `translate3d(${objectX}px, ${objectY}px, ${objectZ}px) rotateX(${tilt}deg) rotateY(${rotateY}deg) rotateZ(${rotateZ}deg)`;
+    `translate3d(${objectX}px, ${objectY}px, ${objectZ}px)
+     rotateX(${rotateX}deg)
+     rotateY(${rotateY}deg)
+     rotateZ(${rotateZ}deg)`;
 
   for (const slice of pillarSliceRecords) {
-    const rawWidth = slice.expandedOuter - slice.expandedInner;
-    const xLocal = (slice.expandedInner + slice.expandedOuter) / 2;
-    const zLocal = slice.depth;
-
-    slice.el.style.width = `${rawWidth}px`;
+    slice.el.style.width = `${slice.rawWidth}px`;
     slice.el.style.height = `${height}px`;
-    slice.el.style.left = `${-rawWidth / 2}px`;
+    slice.el.style.left = `${-slice.rawWidth / 2}px`;
     slice.el.style.top = `${-height / 2}px`;
 
-    // The background spans the whole pillar width in local space.
-    // Each slice samples its corresponding horizontal section.
-    slice.el.style.backgroundSize = `${radius * 2}px ${height}px`;
-    slice.el.style.backgroundPosition = `${-(slice.expandedInner + radius)}px 0px`;
+    slice.el.style.backgroundSize = `${slice.textureWidth}px ${height}px`;
+    slice.el.style.backgroundPosition = `${-slice.textureOffset}px 0px`;
 
-    // The parent now rotates the existing strips on all three axes.
-    slice.el.style.transform = `translate3d(${xLocal}px, 0px, ${zLocal}px)`;
+    slice.el.style.transform =
+      `translate3d(${slice.x}px, 0px, ${slice.z}px) rotateY(${slice.thetaMid}rad)`;
   }
 
-  // Caps
   const caps = pillarEl.querySelectorAll(".pillar-cap");
   for (const cap of caps) {
     cap.style.width = `${radius * 2}px`;
@@ -656,13 +649,13 @@ function updateInfo() {
   info.innerHTML = `
     <strong>Sphere:</strong> ${sphereBandRecords.length} bands ·
     center = (${sphereInputs.x.value}, ${sphereInputs.y.value}, ${sphereInputs.z.value})<br>
-    <strong>Pillar:</strong> ${pillarSliceRecords.length} slices ·
+    <strong>Pillar:</strong> ${pillarSliceRecords.length} tangent slices ·
     center = (${pillarInputs.x.value}, ${pillarInputs.y.value}, ${pillarInputs.z.value}) ·
     rotation = (${pillarInputs.tilt.value}°, ${pillarInputs.rotateY.value}°, ${pillarInputs.rotateZ.value}°) ·
     radius = ${pillarInputs.radius.value} ·
     height = ${pillarInputs.height.value}<br>
-    <strong>Texture:</strong> your provided striped image URL<br>
-    <strong>Note:</strong> all three rotations affect the existing front-surface strips.
+    <strong>Texture:</strong> one image stretched across the complete circumference<br>
+    <strong>Geometry:</strong> front and back semicylinders with the same tangent-strip technique.
   `;
 }
 
