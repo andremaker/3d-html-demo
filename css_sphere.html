@@ -1,0 +1,720 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CSS 3D Sphere + Textured Cylinder</title>
+
+<style>
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #0a1020;
+    color: #eef4ff;
+    font: 14px system-ui, sans-serif;
+  }
+
+  header {
+    padding: 18px 20px 8px;
+  }
+
+  h1 {
+    margin: 0 0 8px;
+    font-size: 22px;
+  }
+
+  header p {
+    margin: 0;
+    color: #a9b8d1;
+    line-height: 1.55;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 330px;
+    gap: 14px;
+    padding: 12px 16px 20px;
+  }
+
+  #stage {
+    position: relative;
+    min-height: 560px;
+    overflow: hidden;
+    border: 1px solid #364863;
+    border-radius: 12px;
+    background:
+      radial-gradient(ellipse at 50% 46%, #26384d 0%, #131d2f 52%, #0a1020 100%);
+    perspective: 850px;
+    perspective-origin: 50% 50%;
+  }
+
+  #world {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    transform: translateZ(-80px);
+    transform-style: preserve-3d;
+    pointer-events: none;
+  }
+
+  .object3d {
+    position: absolute;
+    width: 0;
+    height: 0;
+    transform-style: preserve-3d;
+  }
+
+  /* Sphere */
+  .sphere-band {
+    position: absolute;
+    border-radius: 50%;
+    backface-visibility: visible;
+    background:
+      radial-gradient(circle at 29% 23%, rgba(255,255,255,.92), transparent 26%),
+      radial-gradient(circle at 67% 72%, rgba(15,41,83,.55), transparent 56%),
+      radial-gradient(circle at center,
+        rgba(88,205,235,.45) 0%,
+        rgba(44,142,206,.50) 55%,
+        rgba(132,237,250,.84) 91%,
+        rgba(239,253,255,.98) 100%);
+  }
+
+  .sphere-band.debug {
+    background: var(--debug-color);
+    opacity: .95;
+  }
+
+  /* Cylinder */
+  .pillar-slice {
+    position: absolute;
+    backface-visibility: visible;
+    background-image: url("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR9NegJXKOBrtqthf1dI23hO7yxKISMksEt6o16c6SacF1dNBItaMfCyu0&s=10");
+    background-repeat: no-repeat;
+    image-rendering: auto;
+    box-shadow:
+      inset 0 0 0 0.5px rgba(255,255,255,.08);
+  }
+
+  .pillar-cap {
+    position: absolute;
+    border-radius: 50%;
+    backface-visibility: visible;
+    background:
+      radial-gradient(circle at 40% 35%, rgba(255,255,255,.25), transparent 35%),
+      linear-gradient(180deg, rgba(255,255,255,.08), rgba(0,0,0,.18)),
+      #1b2130;
+    border: 1px solid rgba(255,255,255,.12);
+  }
+
+  .marker-line {
+    position: absolute;
+    left: -280px;
+    width: 560px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.22), transparent);
+    transform-origin: 50% 50%;
+  }
+
+  .crosshair {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .crosshair::before,
+  .crosshair::after {
+    content: "";
+    position: absolute;
+    background: rgba(255,255,255,.45);
+  }
+
+  .crosshair::before {
+    left: 50%;
+    top: calc(50% - 10px);
+    width: 1px;
+    height: 20px;
+  }
+
+  .crosshair::after {
+    top: 50%;
+    left: calc(50% - 10px);
+    width: 20px;
+    height: 1px;
+  }
+
+  .legend {
+    position: absolute;
+    top: 14px;
+    left: 15px;
+    color: #b8c7db;
+    font-size: 12px;
+    line-height: 1.65;
+    pointer-events: none;
+  }
+
+  .legend strong {
+    color: white;
+  }
+
+  .note {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: 14px;
+    text-align: center;
+    color: #b9c7db;
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+  }
+
+  .panel {
+    align-self: start;
+    display: grid;
+    gap: 14px;
+    padding: 16px;
+    background: #131f32;
+    border: 1px solid #364863;
+    border-radius: 12px;
+  }
+
+  .group {
+    display: grid;
+    gap: 10px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #31445d;
+  }
+
+  .group:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .group h2 {
+    margin: 0;
+    font-size: 15px;
+  }
+
+  .control {
+    display: grid;
+    gap: 6px;
+  }
+
+  .control label {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .value {
+    color: #87def4;
+    font-variant-numeric: tabular-nums;
+  }
+
+  input[type="range"] {
+    width: 100%;
+    accent-color: #69d8f1;
+  }
+
+  .check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .check input {
+    accent-color: #69d8f1;
+  }
+
+  button {
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: 7px;
+    border: 1px solid #566f8d;
+    background: #253650;
+    color: white;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .info {
+    color: #b2c2d8;
+    font-size: 12px;
+    line-height: 1.65;
+  }
+
+  .info strong {
+    color: #e0f4fb;
+  }
+
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: 1fr;
+    }
+
+    #stage {
+      min-height: 430px;
+    }
+
+    .panel {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .group:last-child {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (max-width: 520px) {
+    .layout {
+      padding: 8px;
+      gap: 9px;
+    }
+
+    header {
+      padding: 14px 14px 5px;
+    }
+
+    h1 {
+      font-size: 19px;
+    }
+
+    #stage {
+      min-height: 390px;
+    }
+
+    #world {
+      transform: translateZ(-180px) scale(.85);
+    }
+
+    .panel {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>CSS 3D sphere + textured cylinder</h1>
+  <p>
+    The sphere uses camera-facing depth bands. The pillar is a bigger cylinder made from vertical slices using your provided striped image.
+    Move the pillar horizontally to see the texture lines curve relative to the camera center.
+  </p>
+</header>
+
+<div class="layout">
+  <div id="stage">
+    <div class="legend">
+      <strong>Scene</strong>
+      <div>Fixed camera at center</div>
+      <div>Sphere: depth-band sprite</div>
+      <div>Pillar: cylindrical slices</div>
+      <div>Positive Z = closer to camera</div>
+    </div>
+
+    <div id="world">
+      <div id="sphere" class="object3d"></div>
+      <div id="pillar" class="object3d"></div>
+
+      <div class="marker-line" style="top:-180px;"></div>
+      <div class="marker-line" style="top:0px;"></div>
+      <div class="marker-line" style="top:180px;"></div>
+    </div>
+
+    <div class="crosshair"></div>
+    <div class="note">
+      Move and rotate the pillar on all three axes to inspect its perspective-distorted texture.
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="group">
+      <h2>Sphere</h2>
+
+      <div class="control">
+        <label for="sphere-x">X <span class="value" id="sphere-x-value">-130</span></label>
+        <input id="sphere-x" type="range" min="-260" max="260" step="1" value="-130">
+      </div>
+
+      <div class="control">
+        <label for="sphere-y">Y <span class="value" id="sphere-y-value">-30</span></label>
+        <input id="sphere-y" type="range" min="-180" max="180" step="1" value="-30">
+      </div>
+
+      <div class="control">
+        <label for="sphere-z">Z <span class="value" id="sphere-z-value">40</span></label>
+        <input id="sphere-z" type="range" min="-260" max="260" step="1" value="40">
+      </div>
+
+      <div class="control">
+        <label for="sphere-bands">Bands <span class="value" id="sphere-bands-value">24</span></label>
+        <input id="sphere-bands" type="range" min="4" max="64" step="4" value="24">
+      </div>
+
+      <div class="control">
+        <label for="sphere-overlap">Overlap <span class="value" id="sphere-overlap-value">0.8</span> px</label>
+        <input id="sphere-overlap" type="range" min="0" max="2" step="0.1" value="0.8">
+      </div>
+
+      <label class="check">
+        <input id="sphere-debug" type="checkbox">
+        Debug sphere bands
+      </label>
+    </div>
+
+    <div class="group">
+      <h2>Pillar</h2>
+
+      <div class="control">
+        <label for="pillar-x">X <span class="value" id="pillar-x-value">110</span></label>
+        <input id="pillar-x" type="range" min="-260" max="260" step="1" value="110">
+      </div>
+
+      <div class="control">
+        <label for="pillar-y">Y <span class="value" id="pillar-y-value">25</span></label>
+        <input id="pillar-y" type="range" min="-180" max="180" step="1" value="25">
+      </div>
+
+      <div class="control">
+        <label for="pillar-z">Z <span class="value" id="pillar-z-value">20</span></label>
+        <input id="pillar-z" type="range" min="-260" max="260" step="1" value="20">
+      </div>
+
+      <div class="control">
+        <label for="pillar-tilt">Rotation X <span class="value" id="pillar-tilt-value">0</span>°</label>
+        <input id="pillar-tilt" type="range" min="-180" max="180" step="1" value="0">
+      </div>
+
+      <div class="control">
+        <label for="pillar-rotate-y">Rotation Y <span class="value" id="pillar-rotate-y-value">0</span>°</label>
+        <input id="pillar-rotate-y" type="range" min="-180" max="180" step="1" value="0">
+      </div>
+
+      <div class="control">
+        <label for="pillar-rotate-z">Rotation Z <span class="value" id="pillar-rotate-z-value">0</span>°</label>
+        <input id="pillar-rotate-z" type="range" min="-180" max="180" step="1" value="0">
+      </div>
+
+      <div class="control">
+        <label for="pillar-slices">Slices <span class="value" id="pillar-slices-value">28</span></label>
+        <input id="pillar-slices" type="range" min="8" max="56" step="2" value="28">
+      </div>
+
+      <div class="control">
+        <label for="pillar-radius">Radius <span class="value" id="pillar-radius-value">90</span></label>
+        <input id="pillar-radius" type="range" min="30" max="130" step="1" value="90">
+      </div>
+
+      <div class="control">
+        <label for="pillar-height">Height <span class="value" id="pillar-height-value">320</span></label>
+        <input id="pillar-height" type="range" min="120" max="420" step="1" value="320">
+      </div>
+    </div>
+
+    <div class="group">
+      <button id="reset">Reset all</button>
+
+      <div class="info" id="info"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PERSPECTIVE = 850;
+const world = document.getElementById("world");
+
+const sphereEl = document.getElementById("sphere");
+const pillarEl = document.getElementById("pillar");
+
+const sphereInputs = {
+  x: document.getElementById("sphere-x"),
+  y: document.getElementById("sphere-y"),
+  z: document.getElementById("sphere-z"),
+  bands: document.getElementById("sphere-bands"),
+  overlap: document.getElementById("sphere-overlap"),
+  debug: document.getElementById("sphere-debug")
+};
+
+const pillarInputs = {
+  x: document.getElementById("pillar-x"),
+  y: document.getElementById("pillar-y"),
+  z: document.getElementById("pillar-z"),
+  tilt: document.getElementById("pillar-tilt"),
+  rotateY: document.getElementById("pillar-rotate-y"),
+  rotateZ: document.getElementById("pillar-rotate-z"),
+  slices: document.getElementById("pillar-slices"),
+  radius: document.getElementById("pillar-radius"),
+  height: document.getElementById("pillar-height")
+};
+
+const sphereBandRecords = [];
+const pillarSliceRecords = [];
+
+function worldDepth() {
+  return matchMedia("(max-width: 520px)").matches ? -180 : -80;
+}
+
+function setValueLabel(id, value) {
+  document.getElementById(id).textContent = value;
+}
+
+/* ---------------- Sphere ---------------- */
+
+function addSphereBand(inner, outer, depth, index, count) {
+  const band = document.createElement("div");
+  band.className = "sphere-band" + (sphereInputs.debug.checked ? " debug" : "");
+  band.style.setProperty("--debug-color", `hsl(${190 + index / count * 110} 85% 62%)`);
+  sphereEl.appendChild(band);
+  sphereBandRecords.push({ el: band, inner, outer, depth });
+}
+
+function rebuildSphere() {
+  sphereEl.replaceChildren();
+  sphereBandRecords.length = 0;
+
+  const R = 100;
+  const count = +sphereInputs.bands.value;
+
+  for (let i = 0; i < count; i++) {
+    const inner = R * i / count;
+    const outer = R * (i + 1) / count;
+    const mid = (inner + outer) / 2;
+    const depth = Math.sqrt(R * R - mid * mid);
+    addSphereBand(inner, outer, depth, i, count);
+  }
+
+  updateSphere();
+}
+
+function updateSphere() {
+  const x = +sphereInputs.x.value;
+  const y = +sphereInputs.y.value;
+  const z = +sphereInputs.z.value;
+  const overlap = +sphereInputs.overlap.value;
+  const distance = PERSPECTIVE - worldDepth() - z;
+  const R = 100;
+
+  sphereEl.style.transform = `translate3d(${x}px, ${y}px, ${z}px)`;
+
+  for (const band of sphereBandRecords) {
+    const correction = (distance - band.depth) / distance;
+    const size = 2 * R / correction;
+    const inner = Math.max(0, band.inner - overlap) / correction;
+    const outer = Math.min(R, band.outer + overlap) / correction;
+
+    band.el.classList.toggle("debug", sphereInputs.debug.checked);
+
+    band.el.style.width = `${size}px`;
+    band.el.style.height = `${size}px`;
+    band.el.style.left = `${-size / 2}px`;
+    band.el.style.top = `${-size / 2}px`;
+
+    const mask = `radial-gradient(circle at center,
+      transparent ${inner}px,
+      #000 ${inner}px,
+      #000 ${outer}px,
+      transparent ${outer}px)`;
+
+    band.el.style.maskImage = mask;
+    band.el.style.webkitMaskImage = mask;
+
+    band.el.style.transform =
+      `translate3d(${x * (correction - 1)}px, ${y * (correction - 1)}px, ${band.depth}px) scale(${correction})`;
+  }
+
+  setValueLabel("sphere-x-value", sphereInputs.x.value);
+  setValueLabel("sphere-y-value", sphereInputs.y.value);
+  setValueLabel("sphere-z-value", sphereInputs.z.value);
+  setValueLabel("sphere-bands-value", sphereInputs.bands.value);
+  setValueLabel("sphere-overlap-value", sphereInputs.overlap.value);
+}
+
+/* ---------------- Pillar ---------------- */
+
+function rebuildPillar() {
+  pillarEl.replaceChildren();
+  pillarSliceRecords.length = 0;
+
+  const radius = +pillarInputs.radius.value;
+  const height = +pillarInputs.height.value;
+  const count = +pillarInputs.slices.value;
+
+  // Fixed full overlap, per your request.
+  const overlap = 2;
+
+  for (let i = 0; i < count; i++) {
+    const inner = -radius + (2 * radius * i / count);
+    const outer = -radius + (2 * radius * (i + 1) / count);
+
+    const expandedInner = Math.max(-radius, inner - overlap);
+    const expandedOuter = Math.min(radius, outer + overlap);
+
+    const midpoint = (inner + outer) / 2;
+    const depth = Math.sqrt(radius * radius - midpoint * midpoint);
+
+    const slice = document.createElement("div");
+    slice.className = "pillar-slice";
+    pillarEl.appendChild(slice);
+
+    pillarSliceRecords.push({
+      el: slice,
+      radius,
+      height,
+      inner,
+      outer,
+      expandedInner,
+      expandedOuter,
+      midpoint,
+      depth
+    });
+  }
+
+  // Top and bottom caps just for clarity.
+  const capTop = document.createElement("div");
+  capTop.className = "pillar-cap";
+  capTop.dataset.cap = "top";
+  pillarEl.appendChild(capTop);
+
+  const capBottom = document.createElement("div");
+  capBottom.className = "pillar-cap";
+  capBottom.dataset.cap = "bottom";
+  pillarEl.appendChild(capBottom);
+
+  updatePillar();
+}
+
+function updatePillar() {
+  const objectX = +pillarInputs.x.value;
+  const objectY = +pillarInputs.y.value;
+  const objectZ = +pillarInputs.z.value;
+  const tilt = +pillarInputs.tilt.value;
+  const rotateY = +pillarInputs.rotateY.value;
+  const rotateZ = +pillarInputs.rotateZ.value;
+  const radius = +pillarInputs.radius.value;
+  const height = +pillarInputs.height.value;
+  const distance = PERSPECTIVE - worldDepth() - objectZ;
+
+  pillarEl.style.transform =
+    `translate3d(${objectX}px, ${objectY}px, ${objectZ}px) rotateX(${tilt}deg) rotateY(${rotateY}deg) rotateZ(${rotateZ}deg)`;
+
+  for (const slice of pillarSliceRecords) {
+    const rawWidth = slice.expandedOuter - slice.expandedInner;
+    const xLocal = (slice.expandedInner + slice.expandedOuter) / 2;
+    const zLocal = slice.depth;
+
+    slice.el.style.width = `${rawWidth}px`;
+    slice.el.style.height = `${height}px`;
+    slice.el.style.left = `${-rawWidth / 2}px`;
+    slice.el.style.top = `${-height / 2}px`;
+
+    // The background spans the whole pillar width in local space.
+    // Each slice samples its corresponding horizontal section.
+    slice.el.style.backgroundSize = `${radius * 2}px ${height}px`;
+    slice.el.style.backgroundPosition = `${-(slice.expandedInner + radius)}px 0px`;
+
+    // The parent now rotates the existing strips on all three axes.
+    slice.el.style.transform = `translate3d(${xLocal}px, 0px, ${zLocal}px)`;
+  }
+
+  // Caps
+  const caps = pillarEl.querySelectorAll(".pillar-cap");
+  for (const cap of caps) {
+    cap.style.width = `${radius * 2}px`;
+    cap.style.height = `${radius * 2}px`;
+    cap.style.left = `${-radius}px`;
+    cap.style.top = `${-radius}px`;
+
+    if (cap.dataset.cap === "top") {
+      cap.style.transform = `translate3d(0px, ${-height / 2}px, 0px) rotateX(90deg)`;
+    } else {
+      cap.style.transform = `translate3d(0px, ${height / 2}px, 0px) rotateX(90deg)`;
+    }
+  }
+
+  setValueLabel("pillar-x-value", pillarInputs.x.value);
+  setValueLabel("pillar-y-value", pillarInputs.y.value);
+  setValueLabel("pillar-z-value", pillarInputs.z.value);
+  setValueLabel("pillar-tilt-value", pillarInputs.tilt.value);
+  setValueLabel("pillar-rotate-y-value", pillarInputs.rotateY.value);
+  setValueLabel("pillar-rotate-z-value", pillarInputs.rotateZ.value);
+  setValueLabel("pillar-slices-value", pillarInputs.slices.value);
+  setValueLabel("pillar-radius-value", pillarInputs.radius.value);
+  setValueLabel("pillar-height-value", pillarInputs.height.value);
+
+  updateInfo();
+}
+
+/* ---------------- Shared ---------------- */
+
+function updateInfo() {
+  const info = document.getElementById("info");
+  info.innerHTML = `
+    <strong>Sphere:</strong> ${sphereBandRecords.length} bands ·
+    center = (${sphereInputs.x.value}, ${sphereInputs.y.value}, ${sphereInputs.z.value})<br>
+    <strong>Pillar:</strong> ${pillarSliceRecords.length} slices ·
+    center = (${pillarInputs.x.value}, ${pillarInputs.y.value}, ${pillarInputs.z.value}) ·
+    rotation = (${pillarInputs.tilt.value}°, ${pillarInputs.rotateY.value}°, ${pillarInputs.rotateZ.value}°) ·
+    radius = ${pillarInputs.radius.value} ·
+    height = ${pillarInputs.height.value}<br>
+    <strong>Texture:</strong> your provided striped image URL<br>
+    <strong>Note:</strong> all three rotations affect the existing front-surface strips.
+  `;
+}
+
+function resetAll() {
+  sphereInputs.x.value = -130;
+  sphereInputs.y.value = -30;
+  sphereInputs.z.value = 40;
+  sphereInputs.bands.value = 24;
+  sphereInputs.overlap.value = 0.8;
+  sphereInputs.debug.checked = false;
+
+  pillarInputs.x.value = 110;
+  pillarInputs.y.value = 25;
+  pillarInputs.z.value = 20;
+  pillarInputs.tilt.value = 0;
+  pillarInputs.rotateY.value = 0;
+  pillarInputs.rotateZ.value = 0;
+  pillarInputs.slices.value = 28;
+  pillarInputs.radius.value = 90;
+  pillarInputs.height.value = 320;
+
+  rebuildSphere();
+  rebuildPillar();
+}
+
+["x", "y", "z", "overlap"].forEach(key => {
+  sphereInputs[key].addEventListener("input", updateSphere);
+});
+
+["bands"].forEach(key => {
+  sphereInputs[key].addEventListener("input", rebuildSphere);
+});
+
+sphereInputs.debug.addEventListener("input", updateSphere);
+
+["x", "y", "z", "tilt", "rotateY", "rotateZ"].forEach(key => {
+  pillarInputs[key].addEventListener("input", updatePillar);
+});
+
+["slices", "radius", "height"].forEach(key => {
+  pillarInputs[key].addEventListener("input", rebuildPillar);
+});
+
+document.getElementById("reset").addEventListener("click", resetAll);
+
+window.addEventListener("resize", () => {
+  updateSphere();
+  updatePillar();
+});
+
+resetAll();
+</script>
+
+</body>
+</html>
