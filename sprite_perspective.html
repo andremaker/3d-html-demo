@@ -1,0 +1,306 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flying camera · Doom / SRB2 sprite perspective</title>
+<style>
+  :root { color-scheme:dark; font:14px/1.5 system-ui,sans-serif; }
+  * { box-sizing:border-box; }
+  body { margin:0; overflow:hidden; background:#0d1724; color:#e8effb; }
+  #viewport { position:fixed; inset:0; overflow:hidden; perspective:850px; perspective-origin:50% 50%;
+    background:linear-gradient(#18283b 0%,#526a7d 56%,#9aa6a8 100%); cursor:crosshair; }
+
+  /* Align the scene's camera-space origin with the CSS perspective eye. */
+  #scene { position:absolute; top:50%; left:50%; width:0; height:0;
+    transform-style:preserve-3d; transform:translateZ(850px); }
+  #world { position:absolute; top:0; left:0; width:0; height:0;
+    transform-style:preserve-3d; }
+  #floor { position:absolute; left:-1500px; top:-1500px; width:3000px; height:3000px;
+    transform:rotateX(90deg); backface-visibility:visible;
+    background-color:#344e52;
+    background-image:linear-gradient(#adc3ba35 1px,transparent 1px),
+      linear-gradient(90deg,#adc3ba35 1px,transparent 1px),
+      linear-gradient(#142d3660 2px,transparent 2px),
+      linear-gradient(90deg,#142d3660 2px,transparent 2px);
+    background-size:50px 50px,50px 50px,250px 250px,250px 250px;
+    box-shadow:inset 0 0 220px #0007; }
+  .sprite { position:absolute; background-repeat:no-repeat; image-rendering:pixelated;
+    transform-origin:center bottom; backface-visibility:visible; will-change:transform; }
+  .sprite.doom { background-image:url('https://raw.githubusercontent.com/conkonig/tinydoom/master/doom_sprites.png'); }
+  .sprite.sonic { background-image:url('https://www.wiki.srb2.org/w/images/5/5c/EDGEA2.png'); }
+  .shadow { position:absolute; width:94px; height:55px; left:-47px; top:-27px;
+    border-radius:50%; background:radial-gradient(ellipse,#07131892,transparent 70%);
+    pointer-events:none; }
+  .marker { position:absolute; width:8px; height:8px; margin:-4px;
+    border-radius:50%; background:#def; box-shadow:0 0 11px #def9; }
+  #hud { position:fixed; top:16px; left:16px; padding:15px 17px; background:#0d1724d9;
+    border:1px solid #d3e5ff25; border-radius:13px; max-width:min(395px,calc(100vw - 32px));
+    backdrop-filter:blur(15px); cursor:auto; }
+  h1 { font-size:15px; margin:0 0 5px; letter-spacing:.02em; }
+  p { color:#afc4d8; margin:0 0 9px; font-size:12px; }
+  #controls { display:grid; grid-template-columns:auto 1fr; gap:9px 13px; align-items:center; }
+  label { font-size:12px; color:#cee0f1; white-space:nowrap; }
+  select,input[type=range] { width:100%; accent-color:#7fd7ec; }
+  select { background:#21354a; color:#edf7ff; border:1px solid #637f95; border-radius:6px; padding:6px; }
+  output { color:#8cdaf0; }
+  #stats { margin-top:9px; font:11px/1.6 ui-monospace,monospace; color:#91a9c0; }
+  #instructions { position:fixed; right:16px; bottom:16px; padding:12px 15px;
+    background:#0d1724d9; border:1px solid #d3e5ff25; border-radius:12px;
+    color:#c7d7e7; font-size:12px; pointer-events:none; }
+  #reticle { position:fixed; left:50%; top:50%; width:10px; height:10px;
+    transform:translate(-50%,-50%); border:1px solid #fff9; border-radius:50%; pointer-events:none; }
+  #hint { position:fixed; left:50%; bottom:24%; transform:translateX(-50%);
+    background:#0d1724d9; padding:12px 20px; border:1px solid #a7bdd744;
+    border-radius:40px; pointer-events:none; text-align:center; }
+  body.locked #hint { display:none; }
+  .key { display:inline-block; border:1px solid #9cb5c855; border-radius:4px;
+    padding:1px 4px; color:white; margin:0 2px; }
+  @media (max-width:700px) { #instructions { bottom:12px; left:16px; right:auto; }
+    #hud { padding:10px; max-width:300px; } }
+</style>
+</head>
+<body>
+<div id="viewport" aria-label="CSS 3D flying scene">
+  <div id="scene"><div id="world"><div id="floor"></div></div></div>
+</div>
+<div id="reticle"></div>
+<div id="hint">Click the scene to fly · Esc to release mouse</div>
+<section id="hud">
+  <h1>Doom / SRB2 — Sprite perspective</h1>
+  <p>Screen-parallel sprites, eye-centered camera and vertical shortening.</p>
+  <div id="controls">
+    <label for="mode">Vertical shortening</label>
+    <select id="mode">
+      <option value="soft">Soft foreshortening</option>
+      <option value="physical">Cosine shortening</option>
+      <option value="none">No shortening</option>
+    </select>
+    <label for="strength">Shortening <output id="strengthValue">40%</output></label>
+    <input type="range" id="strength" min="0" max="100" value="40">
+    <label for="speed">Flight speed <output id="speedValue">300</output></label>
+    <input type="range" id="speed" min="80" max="900" step="20" value="300">
+  </div>
+  <div id="stats">Position: —<br>Yaw / pitch: —<br>Mouse: unlocked</div>
+</section>
+<div id="instructions">
+  <span class="key">W A S D</span> horizontal move · <span class="key">Mouse</span> look<br>
+  <span class="key">Space</span> rise · <span class="key">Shift</span> descend<br>
+  <span class="key">Ctrl</span> boost · <span class="key">R</span> reset<br>
+  <span class="key">Esc</span> release · arrows also look
+</div>
+<script>
+(() => {
+  'use strict';
+  const viewport = document.getElementById('viewport');
+  const world = document.getElementById('world');
+  const scene = document.getElementById('scene');
+  const modeEl = document.getElementById('mode');
+  const strengthEl = document.getElementById('strength');
+  const speedEl = document.getElementById('speed');
+  const stats = document.getElementById('stats');
+  const initial = { x:0, y:-170, z:540, yaw:0, pitch:12 };
+  const camera = { ...initial };
+  const keys = new Set();
+  const RAD = Math.PI / 180;
+  const sprites = [];
+
+  const characters = [
+    { name:'Doom Zombie', source:'doom', x:-235, z:70,
+      frame:{ x:76, y:72, w:39, h:55 }, height:165 },
+    { name:'Doom Imp', source:'doom', x:-60, z:-115,
+      frame:{ x:261, y:72, w:44, h:55 }, height:175 },
+    { name:'SRB2 Sonic', source:'sonic', x:145, z:15,
+      frame:{ x:0, y:0, w:47, h:61 }, height:168 },
+    { name:'SRB2 Sonic', source:'sonic', x:300, z:-240,
+      frame:{ x:0, y:0, w:47, h:61 }, height:168 },
+    { name:'Doom Imp', source:'doom', x:-340, z:-405,
+      frame:{ x:261, y:72, w:44, h:55 }, height:175 },
+    { name:'Doom Zombie', source:'doom', x:55, z:-575,
+      frame:{ x:76, y:72, w:39, h:55 }, height:165 }
+  ];
+
+  for (const def of characters) {
+    const shadow = document.createElement('div');
+    shadow.className = 'shadow';
+    shadow.style.transform =
+      `translate3d(${def.x}px,-2px,${def.z}px) rotateX(90deg)`;
+    world.append(shadow);
+
+    const el = document.createElement('div');
+    el.className = `sprite ${def.source}`;
+    el.title = def.name;
+    el.style.width = `${def.frame.w}px`;
+    el.style.height = `${def.frame.h}px`;
+    el.style.left = `${-def.frame.w / 2}px`;
+    el.style.top = `${-def.frame.h}px`;
+    if (def.source === 'doom') {
+      el.style.backgroundPosition =
+        `${-def.frame.x}px ${-def.frame.y}px`;
+    }
+    scene.append(el);
+    sprites.push({ ...def, el, scale:def.height / def.frame.h });
+  }
+
+  const marker = document.createElement('div');
+  marker.className = 'marker';
+  marker.style.transform =
+    'translate3d(0px,-3px,0px) rotateX(90deg)';
+  world.append(marker);
+
+  viewport.addEventListener('click', () => {
+    if (document.pointerLockElement !== viewport) {
+      viewport.requestPointerLock();
+    }
+  });
+
+  document.addEventListener('pointerlockchange', () => {
+    document.body.classList.toggle(
+      'locked',
+      document.pointerLockElement === viewport
+    );
+    keys.clear();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (document.pointerLockElement !== viewport) return;
+    camera.yaw += e.movementX * 0.12;
+    camera.pitch = clamp(camera.pitch + e.movementY * 0.12, -89, 89);
+  });
+
+  // Don't leave mouse-adjusted config controls focused.
+  for (const input of [strengthEl, speedEl]) {
+    input.addEventListener('pointerup', () => input.blur());
+    input.addEventListener('change', () => input.blur());
+  }
+  modeEl.addEventListener('change', () => modeEl.blur());
+
+  document.addEventListener('keydown', e => {
+    const key = e.code;
+    if (['INPUT','SELECT'].includes(document.activeElement.tagName)) {
+      if (['KeyW','KeyA','KeyS','KeyD','Space','ShiftLeft','ShiftRight',
+           'ControlLeft','ControlRight','ArrowUp','ArrowDown','ArrowLeft',
+           'ArrowRight','KeyR'].includes(key)) {
+        document.activeElement.blur();
+      } else {
+        return;
+      }
+    }
+
+    if (['Space','ArrowUp','ArrowDown',
+         'ArrowLeft','ArrowRight'].includes(key)) {
+      e.preventDefault();
+    }
+
+    keys.add(key);
+    if (key === 'KeyR' && !e.repeat) Object.assign(camera, initial);
+  });
+
+  document.addEventListener('keyup', e => keys.delete(e.code));
+  window.addEventListener('blur', () => keys.clear());
+
+  function clamp(v, a, b) {
+    return Math.min(b, Math.max(a, v));
+  }
+  function format(v) {
+    return v.toFixed(0);
+  }
+
+  function render() {
+    // Inverse camera transform, now aligned with the perspective eye.
+    world.style.transform =
+      `rotateX(${-camera.pitch}deg) rotateY(${camera.yaw}deg) ` +
+      `translate3d(${-camera.x}px,${-camera.y}px,${-camera.z}px)`;
+
+    const mode = modeEl.value;
+    const strength = Number(strengthEl.value) / 100;
+
+    // Stylized shortening based on camera pitch, not sprite distance.
+    const cosine = Math.abs(Math.cos(camera.pitch * RAD));
+    const compression =
+      mode === 'physical' ? cosine :
+      mode === 'soft' ? 1 - strength * (1 - cosine) :
+      1;
+
+    const yaw = camera.yaw * RAD;
+    const pitch = camera.pitch * RAD;
+    const cosYaw = Math.cos(yaw);
+    const sinYaw = Math.sin(yaw);
+    const cosPitch = Math.cos(pitch);
+    const sinPitch = Math.sin(pitch);
+
+    for (const sprite of sprites) {
+      // Transform the character's feet into camera-space XYZ.
+      const dx = sprite.x - camera.x;
+      const dy = -camera.y;
+      const dz = sprite.z - camera.z;
+
+      const x = cosYaw * dx + sinYaw * dz;
+      const rotatedZ = -sinYaw * dx + cosYaw * dz;
+      const y = cosPitch * dy + sinPitch * rotatedZ;
+      const z = -sinPitch * dy + cosPitch * rotatedZ;
+
+      // No sprite rotation: all sprites stay parallel to the screen.
+      // Their Z position still participates in CSS perspective.
+      sprite.el.style.transform =
+        `translate3d(${x}px,${y}px,${z}px) ` +
+        `scale(${sprite.scale},${sprite.scale * compression})`;
+    }
+
+    strengthEl.disabled = mode !== 'soft';
+    document.getElementById('strengthValue').textContent =
+      `${strengthEl.value}%`;
+    document.getElementById('speedValue').textContent =
+      speedEl.value;
+
+    stats.innerHTML =
+      `Position: ${format(camera.x)}, ${format(-camera.y)} high, ${format(camera.z)}<br>` +
+      `Yaw / pitch: ${format(camera.yaw)}° / ${format(camera.pitch)}°<br>` +
+      `Mouse: ${document.pointerLockElement === viewport ? 'locked' : 'unlocked'}`;
+  }
+
+  let previous = performance.now();
+
+  function animate(now) {
+    const dt = Math.min((now - previous) / 1000, 0.05);
+    previous = now;
+
+    const lookSpeed = 80 * dt;
+    if (keys.has('ArrowLeft')) camera.yaw -= lookSpeed;
+    if (keys.has('ArrowRight')) camera.yaw += lookSpeed;
+    if (keys.has('ArrowUp')) camera.pitch -= lookSpeed;
+    if (keys.has('ArrowDown')) camera.pitch += lookSpeed;
+    camera.pitch = clamp(camera.pitch, -89, 89);
+
+    const yaw = camera.yaw * RAD;
+
+    // WASD stays on the horizontal plane, independent of pitch.
+    const forward = [Math.sin(yaw), 0, -Math.cos(yaw)];
+    const right = [Math.cos(yaw), 0, Math.sin(yaw)];
+
+    const f = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
+    const r = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
+    const u =
+      Number(keys.has('ShiftLeft') || keys.has('ShiftRight')) -
+      Number(keys.has('Space'));
+
+    const mag = Math.hypot(f, r, u) || 1;
+    const distance =
+      Number(speedEl.value) *
+      (keys.has('ControlLeft') || keys.has('ControlRight') ? 3 : 1) *
+      dt / mag;
+
+    camera.x += (forward[0] * f + right[0] * r) * distance;
+    camera.y += u * distance;
+    camera.z += (forward[2] * f + right[2] * r) * distance;
+
+    render();
+    requestAnimationFrame(animate);
+  }
+
+  requestAnimationFrame(animate);
+})();
+</script>
+</body>
+</html>
