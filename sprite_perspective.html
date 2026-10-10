@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Flying camera · 8-direction sprite sheets</title>
+<title>Flying camera · tilted sprites and vertical wall intersections</title>
 <style>
   :root { color-scheme:dark; font:14px/1.5 system-ui,sans-serif; }
   * { box-sizing:border-box; }
@@ -30,6 +30,35 @@
   .sprite.zombie { background-image:url('https://opengameart.org/sites/default/files/zombie_0.png'); }
   .sprite.skeleton { background-image:url('https://opengameart.org/sites/default/files/skeleton_0.png'); }
   .sprite.goblin { background-image:url('https://opengameart.org/sites/default/files/goblin.png'); }
+  .occluder { position:absolute; background:transparent; border:0;
+    backface-visibility:visible; transform-origin:center bottom; overflow:hidden; }
+  .occluder canvas { display:block; width:100%; height:100%; }
+  .house-wall { position:absolute; transform-origin:center bottom; backface-visibility:visible;
+    background:linear-gradient(90deg,#bca080 0%,#efdfc2 12%,#ecddc0 83%,#ad9277 100%);
+    border:5px solid #77533e; box-shadow:inset 0 -18px 0 #aa8d71,inset 0 8px 0 #f8ebd2; }
+  .house-wall.side { background:linear-gradient(110deg,#c4a887,#ead4ac 48%,#aa866e); }
+  .house-wall.side::before,.house-wall.side::after { content:''; position:absolute;
+    top:27%; width:22%; height:26%; border:5px solid #76513a;
+    background:linear-gradient(90deg,transparent 46%,#76513a 46% 54%,transparent 54%),
+      linear-gradient(0deg,transparent 45%,#76513a 45% 55%,transparent 55%),
+      linear-gradient(135deg,#ffe8a4,#9dc8c0);
+    box-shadow:0 7px 0 #805b42,0 11px 0 #678452; }
+  .house-wall.side::before { left:16%; }
+  .house-wall.side::after { right:16%; }
+  .house-gable { position:absolute; transform-origin:center bottom; backface-visibility:visible;
+    background:linear-gradient(115deg,#bf9f81,#e8d7b5,#b79a81);
+    clip-path:polygon(50% 0,100% 100%,0 100%); }
+  .house-gable::after { content:''; position:absolute; top:48%; left:44%; width:12%; height:29%;
+    border-radius:50% 50% 2px 2px; background:#72533d; border:3px solid #f7e7c5; }
+  .house-roof { position:absolute; transform-origin:center center; backface-visibility:visible;
+    background:repeating-linear-gradient(90deg,transparent 0px,transparent 17px,#f1bca126 17px,#f1bca126 18px),
+      repeating-linear-gradient(0deg,#b26352 0px,#b26352 15px,#79423c 17px,#79423c 19px);
+    border:4px solid #77473c; box-shadow:0 6px 12px #16242d48,inset 0 3px 0 #edab89; }
+  .house-chimney { position:absolute; transform-origin:center bottom; backface-visibility:visible;
+    background:repeating-linear-gradient(0deg,#a76b54 0px,#bd8064 13px,#e1b08b 14px,#765043 16px);
+    border:3px solid #755042; box-shadow:inset 5px 0 0 #f2c19b66; }
+  .house-chimney::before { content:''; position:absolute; left:-5px; right:-5px; top:-5px;
+    height:8px; background:#e0b69a; border:2px solid #775444; }
   .shadow { position:absolute; width:94px; height:55px; left:-47px; top:-27px;
     border-radius:50%; background:radial-gradient(ellipse,#07131892,transparent 70%);
     pointer-events:none; }
@@ -51,10 +80,6 @@
     color:#c7d7e7; font-size:12px; pointer-events:none; }
   #reticle { position:fixed; left:50%; top:50%; width:10px; height:10px;
     transform:translate(-50%,-50%); border:1px solid #fff9; border-radius:50%; pointer-events:none; }
-  #hint { position:fixed; left:50%; bottom:24%; transform:translateX(-50%);
-    background:#0d1724d9; padding:12px 20px; border:1px solid #a7bdd744;
-    border-radius:40px; pointer-events:none; text-align:center; }
-  body.locked #hint { display:none; }
   .key { display:inline-block; border:1px solid #9cb5c855; border-radius:4px;
     padding:1px 4px; color:white; margin:0 2px; }
   @media (max-width:700px) { #instructions { bottom:12px; left:16px; right:auto; }
@@ -66,10 +91,8 @@
   <div id="scene"><div id="world"><div id="floor"></div></div></div>
 </div>
 <div id="reticle"></div>
-<div id="hint">Click the scene to fly · Esc to release mouse</div>
 <section id="hud">
   <h1>Eight-direction sprite sheets</h1>
-  <p>Ground-upright sprites, eye-centered camera and vertical shortening.</p>
   <div id="controls">
     <label for="mode">Vertical shortening</label>
     <select id="mode">
@@ -100,7 +123,7 @@
   const strengthEl = document.getElementById('strength');
   const speedEl = document.getElementById('speed');
   const stats = document.getElementById('stats');
-  const initial = { x:0, y:-170, z:540, yaw:0, pitch:12 };
+  const initial = { x:0, y:-420, z:1050, yaw:0, pitch:28 };
   const camera = { ...initial };
   const keys = new Set();
   const RAD = Math.PI / 180;
@@ -125,17 +148,24 @@
       x:STANCE_COLUMN*CELL, y:row*CELL, w:CELL, h:CELL, ax:CELL/2, ay:112
     }));
     const image = new Image();
-    image.crossOrigin = 'anonymous';
+    // A regular image can always be painted onto a Canvas, even when the
+    // image host does not allow reading its pixels through CORS.
     image.onload = () => {
+      sheet.image = image;
+      for (const sprite of sprites) if (sprite.source === source) sprite.maskKey = '';
       try {
         const canvas = document.createElement('canvas');
         canvas.width = canvas.height = CELL;
         const ctx = canvas.getContext('2d', {willReadFrequently:true});
         const frames = [];
+        const alphaFrames = [];
         for (let row=0; row<8; row++) {
           ctx.clearRect(0,0,CELL,CELL);
           ctx.drawImage(image,STANCE_COLUMN*CELL,row*CELL,CELL,CELL,0,0,CELL,CELL);
           const data = ctx.getImageData(0,0,CELL,CELL).data;
+          const alpha = new Uint8Array(CELL*CELL);
+          for (let i=0; i<alpha.length; i++) alpha[i]=data[i*4+3];
+          alphaFrames.push(alpha);
           let left=CELL, top=CELL, right=-1, bottom=-1;
           for (let y=0; y<CELL; y++) {
             for (let x=0; x<CELL; x++) {
@@ -151,6 +181,7 @@
           });
         }
         sheet.frames = frames;
+        sheet.alphaFrames = alphaFrames;
         sheet.visualHeight = Math.max(...frames.map(frame => frame.h));
         for (const sprite of sprites) {
           if (sprite.source === source) sprite.activeView = -1;
@@ -163,15 +194,95 @@
   }
 
   const characters = [
-    { name:'Zombie', source:'zombie', x:-235, z:70, height:165 },
-    { name:'Skeleton Warrior', source:'skeleton', x:-60, z:-115, height:175 },
-    { name:'Goblin', source:'goblin', x:145, z:15, height:168 },
-    { name:'Goblin', source:'goblin', x:300, z:-240, height:168 },
-    { name:'Skeleton Warrior', source:'skeleton', x:-340, z:-405, height:175 },
-    { name:'Zombie', source:'zombie', x:55, z:-575, height:165 }
+    { name:'Zombie', source:'zombie', x:-270, z:380, height:165 },
+    { name:'Goblin', source:'goblin', x:0, z:380, height:168 },
+    { name:'Skeleton Warrior', source:'skeleton', x:270, z:380, height:175 },
+    { name:'Zombie', source:'zombie', x:-270, z:-10, height:165 },
+    { name:'Goblin', source:'goblin', x:0, z:-10, height:168 },
+    { name:'Skeleton Warrior', source:'skeleton', x:270, z:-10, height:175 },
+    { name:'Zombie', source:'zombie', x:-270, z:-400, height:165 },
+    { name:'Goblin', source:'goblin', x:0, z:-400, height:168 },
+    { name:'Skeleton Warrior', source:'skeleton', x:270, z:-400, height:175 },
+    { name:'Zombie', source:'zombie', x:-270, z:-790, height:165 },
+    { name:'Goblin', source:'goblin', x:0, z:-790, height:168 },
+    { name:'Skeleton Warrior', source:'skeleton', x:270, z:-790, height:175 }
   ];
 
-  for (const def of characters) {
+  // Distances are measured along each house's front-wall normal and scale
+  // with the character's height, so their feet never start inside a house.
+  const houseTests = new Map([
+    [0, { yaw: 0, gap: 0.22 }],
+    [2, { yaw: 25, gap: 0.25 }],
+    [3, { yaw: -30, gap: 0.28 }],
+    [6, { yaw: -15, gap: 0.33 }],
+    [8, { yaw: -40, gap: 0.36 }],
+    [11, { yaw: 15, gap: 0.40 }]
+  ]);
+  for (const [index, def] of characters.entries()) {
+    let blocker = null, wallCanvas = null;
+    const house = houseTests.get(index);
+    if (house) {
+      // All walls and both roof slopes use the same house geometry. The only
+      // wall that needs a perspective sprite cutout is the front-facing one.
+      const gap = def.height * house.gap;
+      const width = def.height * 1.30;
+      const depth = def.height * 1.05;
+      const eaveHeight = def.height * 1.28;
+      const rise = def.height * 0.24;
+      const overhang = def.height * 0.04;
+      const yaw = house.yaw * RAD;
+      const sinYaw = Math.sin(yaw), cosYaw = Math.cos(yaw);
+      const frontX = def.x - sinYaw * gap;
+      const frontZ = def.z - cosYaw * gap;
+      const position = (x, z) => ({
+        x: frontX + cosYaw*x + sinYaw*z,
+        z: frontZ - sinYaw*x + cosYaw*z
+      });
+      const panel = (cls, w, h, x, y, z, rotation, centered = false) => {
+        const element = document.createElement('div');
+        element.className = cls;
+        element.style.width = `${w}px`;
+        element.style.height = `${h}px`;
+        element.style.left = `${-w/2}px`;
+        element.style.top = `${centered ? -h/2 : -h}px`;
+        element.style.transform = `translate3d(${x}px,${y}px,${z}px) ${rotation}`;
+        world.append(element);
+        return element;
+      };
+      blocker = panel('occluder', width, eaveHeight, frontX, 0, frontZ,
+        `rotateY(${house.yaw}deg)`);
+      blocker.dataset.wall = `House ${[...houseTests.keys()].indexOf(index)+1}: ${gap.toFixed(0)} / ${def.height}`;
+      wallCanvas = document.createElement('canvas');
+      blocker.append(wallCanvas);
+
+      const back = position(0, -depth);
+      panel('house-wall', width, eaveHeight, back.x, 0, back.z,
+        `rotateY(${house.yaw+180}deg)`);
+      for (const side of [-1, 1]) {
+        const wall = position(side*width/2, -depth/2);
+        panel('house-wall side', depth, eaveHeight, wall.x, 0, wall.z,
+          `rotateY(${house.yaw+90}deg)`);
+      }
+      for (const end of [0, -depth]) {
+        const gable = position(0, end);
+        panel('house-gable', width, rise, gable.x, -eaveHeight, gable.z,
+          `rotateY(${house.yaw+(end===0 ? 0 : 180)}deg)`);
+      }
+      const halfWidth = width/2;
+      const run = halfWidth+overhang;
+      const roofAngle = Math.atan2(rise, halfWidth);
+      const roofWidth = run / Math.cos(roofAngle);
+      const roofHeight = eaveHeight + rise * (1 - run/(2*halfWidth));
+      for (const side of [-1, 1]) {
+        const center = position(side*run/2, -depth/2);
+        panel('house-roof', roofWidth, depth+2*overhang,
+          center.x, -roofHeight, center.z,
+          `rotateY(${house.yaw}deg) rotateZ(${side*roofAngle/RAD}deg) rotateX(90deg)`, true);
+      }
+      const chimney = position(width*0.27, -depth*0.70);
+      panel('house-chimney', def.height*0.14, def.height*0.29,
+        chimney.x, -eaveHeight-rise*0.53, chimney.z, `rotateY(${house.yaw}deg)`);
+    }
     const shadow = document.createElement('div');
     shadow.className = 'shadow';
     shadow.style.transform = `translate3d(${def.x}px,-2px,${def.z}px) rotateX(90deg)`;
@@ -190,7 +301,8 @@
     el.style.transformOrigin = `${frame.ax * RASTER_SCALE}px ${frame.ay * RASTER_SCALE}px`;
     el.style.backgroundPosition = `${-frame.x * RASTER_SCALE}px ${-frame.y * RASTER_SCALE}px`;
     world.append(el);
-    sprites.push({ ...def, el, scale:def.height / sheets[def.source].visualHeight, activeView:-1 });
+
+    sprites.push({ ...def, el, blocker, wallCanvas, scale:def.height / frame.ay, activeView:-1 });
   }
 
   // Origin marker, useful for judging how the ground moves during flight.
@@ -267,7 +379,270 @@
     sprite.el.style.top = `${-frame.ay * RASTER_SCALE}px`;
     sprite.el.style.transformOrigin = `${frame.ax * RASTER_SCALE}px ${frame.ay * RASTER_SCALE}px`;
     sprite.el.style.backgroundPosition = `${-frame.x * RASTER_SCALE}px ${-frame.y * RASTER_SCALE}px`;
-    sprite.scale = sprite.height / sheet.visualHeight;
+    sprite.scale = sprite.height / frame.ay;
+  }
+
+  // Read the physical wall geometry from its HTML element, not from a duplicate model.
+  function wallGeometry(el) {
+    const style = getComputedStyle(el);
+    const matrix = new DOMMatrix(style.transform);
+    const [ox, oy, oz = 0] = style.transformOrigin.split(' ').map(parseFloat);
+    const point = (x, y) => {
+      const p = new DOMPoint(x-ox, y-oy, -oz).matrixTransform(matrix);
+      return { x:el.offsetLeft+ox+p.x, y:el.offsetTop+oy+p.y, z:oz+p.z };
+    };
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const topLeft = point(0,0), topRight = point(w,0);
+    const bottomLeft = point(0,h), bottomRight = point(w,h);
+    const tx = (bottomRight.x-bottomLeft.x)/w;
+    const tz = (bottomRight.z-bottomLeft.z)/w;
+    return {w,h,topLeft,bottomLeft,center:{x:(bottomRight.x+bottomLeft.x)/2,
+      z:(bottomRight.z+bottomLeft.z)/2}, tx,tz, nx:-tz,nz:tx};
+  }
+
+  function intersectPolygon(polygon, distance) {
+    const result = [];
+    for (let i=0; i<polygon.length; i++) {
+      const a = polygon[i], b = polygon[(i+1)%polygon.length];
+      const da = distance(a), db = distance(b);
+      if (da >= -1e-7) result.push(a);
+      if ((da < 0 && db > 0) || (da > 0 && db < 0)) {
+        const t = da/(da-db);
+        result.push({x:a.x+t*(b.x-a.x),y:a.y+t*(b.y-a.y)});
+      }
+    }
+    return result;
+  }
+
+  // Paint each HTML wall into its own Canvas and erase only the opaque pixels
+  // of the sprite that extend through it. Drawing a cross-origin image is fine:
+  // unlike getImageData() and toDataURL(), this never reads its pixels back.
+  function updateWallIntersection(sprite, frame, tilt, facing) {
+    const wall = wallGeometry(sprite.blocker);
+    const sheet = sheets[sprite.source];
+    const img = sheet.image;
+    const maskKey=[camera.x,camera.y,camera.z,facing,tilt,sprite.x,sprite.z,
+      sprite.scale,frame.x,frame.y,frame.w,frame.h,
+      wall.w,wall.h,wall.topLeft.x,wall.topLeft.y,wall.topLeft.z,
+      wall.tx,wall.tz,wall.center.x,wall.center.z,Boolean(img)].join(',');
+    if (maskKey===sprite.maskKey) return;
+    sprite.maskKey=maskKey;
+    const canvas = sprite.wallCanvas;
+    if (canvas.width!==wall.w || canvas.height!==wall.h) {
+      canvas.width=wall.w; canvas.height=wall.h;
+    }
+    const ctx=canvas.getContext('2d');
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.globalCompositeOperation='source-over';
+    ctx.clearRect(0,0,wall.w,wall.h);
+    const gradient=ctx.createLinearGradient(0,0,wall.w,wall.h);
+    gradient.addColorStop(0,'#f4e7ca');
+    gradient.addColorStop(0.65,'#e8d5b3');
+    gradient.addColorStop(1,'#cbb18f');
+    ctx.fillStyle=gradient;
+    ctx.fillRect(0,0,wall.w,wall.h);
+    // Stucco, exposed timber, and a low stone foundation.
+    ctx.fillStyle='#a99580';
+    ctx.fillRect(0,wall.h*0.91,wall.w,wall.h*0.09);
+    ctx.strokeStyle='#e1cbb0';
+    ctx.lineWidth=1;
+    for (let y=wall.h*0.935; y<wall.h; y+=13) {
+      ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(wall.w,y); ctx.stroke();
+    }
+    ctx.fillStyle='#815842';
+    ctx.fillRect(0,0,7,wall.h);
+    ctx.fillRect(wall.w-7,0,7,wall.h);
+    ctx.fillRect(0,0,wall.w,8);
+    ctx.fillRect(0,wall.h*0.68,wall.w,7);
+    // Golden-paned windows with wooden shutters and flower boxes.
+    for (const x of [wall.w*0.14,wall.w*0.69]) {
+      const wx=x, wy=wall.h*0.32, ww=wall.w*0.17, wh=wall.h*0.22;
+      ctx.fillStyle='#704b37';
+      ctx.fillRect(wx-6,wy-4,ww+12,wh+8);
+      const glass=ctx.createLinearGradient(wx,wy,wx,wy+wh);
+      glass.addColorStop(0,'#fff0b7'); glass.addColorStop(1,'#9cbbc0');
+      ctx.fillStyle=glass;
+      ctx.fillRect(wx,wy,ww,wh);
+      ctx.fillStyle='#795039';
+      ctx.fillRect(wx+ww/2-2,wy,4,wh);
+      ctx.fillRect(wx,wy+wh/2-2,ww,4);
+      for (const shutterX of [wx-12,wx+ww+5]) {
+        ctx.fillStyle='#76958c';
+        ctx.fillRect(shutterX,wy-2,7,wh+4);
+        ctx.strokeStyle='#4e7063';
+        for (let i=5; i<wh; i+=7) {
+          ctx.beginPath();ctx.moveTo(shutterX,wy+i);ctx.lineTo(shutterX+7,wy+i);ctx.stroke();
+        }
+      }
+      ctx.fillStyle='#80553b';
+      ctx.fillRect(wx-8,wy+wh+5,ww+16,9);
+      ctx.fillStyle='#547c57';
+      ctx.fillRect(wx-5,wy+wh+2,ww+10,5);
+      for (let i=0;i<5;i++) {
+        ctx.fillStyle=i%2 ? '#e9a6a1' : '#f7d5a0';
+        ctx.beginPath();ctx.arc(wx+i*(ww/4),wy+wh+1,3.5,0,Math.PI*2);ctx.fill();
+      }
+    }
+    // Rounded wooden door with a little brass handle and shallow stone step.
+    const dx=wall.w*0.385, dy=wall.h*0.59, dw=wall.w*0.23;
+    ctx.fillStyle='#e7b989';
+    ctx.fillRect(dx-6,dy-7,dw+12,wall.h-dy);
+    ctx.fillStyle='#634333';
+    ctx.beginPath();
+    ctx.moveTo(dx,wall.h);ctx.lineTo(dx,dy+dw/2);
+    ctx.arc(dx+dw/2,dy+dw/2,dw/2,Math.PI,0);
+    ctx.lineTo(dx+dw,wall.h);ctx.closePath();ctx.fill();
+    ctx.strokeStyle='#997255';ctx.lineWidth=2;
+    ctx.strokeRect(dx+6,dy+dw*0.65,dw-12,wall.h-dy-dw*0.65-8);
+    ctx.fillStyle='#f2cf83';
+    ctx.beginPath();ctx.arc(dx+dw-9,wall.h*0.84,3.5,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#9c856d';
+    ctx.fillRect(dx-12,wall.h-5,dw+24,5);
+    const houseNumber=Number(sprite.blocker.dataset.wall.match(/House (\d+)/)?.[1] || 1);
+    ctx.fillStyle='#7d5037';
+    ctx.fillRect(wall.w*0.43,wall.h*0.17,wall.w*0.14,wall.h*0.075);
+    ctx.fillStyle='#fff0d1';ctx.textAlign='center';
+    ctx.font='700 12px Georgia,serif';
+    ctx.fillText(houseNumber.toString(),wall.w*0.5,wall.h*0.223);
+    if (!img) return;
+
+    const sinFacing=Math.sin(facing), cosFacing=Math.cos(facing);
+    const lean=Math.tan(tilt);
+    const footSide=(sprite.x-wall.center.x)*wall.nx+(sprite.z-wall.center.z)*wall.nz;
+    const eyeSide=(camera.x-wall.center.x)*wall.nx+(camera.z-wall.center.z)*wall.nz;
+    // Do not remove ordinary occlusion when the viewer is across the wall.
+    if (footSide*eyeSide<=1e-6) return;
+
+    const imagePoint=p=>{
+      const across=(p.x-frame.ax)*sprite.scale;
+      const up=(frame.ay-p.y)*sprite.scale;
+      return {x:sprite.x+across*cosFacing-up*lean*sinFacing,
+        y:-up,z:sprite.z-across*sinFacing-up*lean*cosFacing};
+    };
+    const side=Math.sign(footSide);
+    let penetrated=[{x:0,y:0},{x:frame.w,y:0},
+      {x:frame.w,y:frame.h},{x:0,y:frame.h}];
+    penetrated=intersectPolygon(penetrated,p=>{
+      const q=imagePoint(p);
+      return -side*((q.x-wall.center.x)*wall.nx+(q.z-wall.center.z)*wall.nz);
+    });
+    if (penetrated.length<3) return;
+
+    // Perspective projection from the eye to the actual HTML wall surface.
+    const numer=(wall.center.x-camera.x)*wall.nx+(wall.center.z-camera.z)*wall.nz;
+    const toWall=p=>{
+      const q=imagePoint(p);
+      const denom=(q.x-camera.x)*wall.nx+(q.z-camera.z)*wall.nz;
+      if (Math.abs(denom)<1e-8) return null;
+      const t=numer/denom;
+      if (t<=0 || !Number.isFinite(t)) return null;
+      const x=camera.x+t*(q.x-camera.x);
+      const y=camera.y+t*(q.y-camera.y);
+      const z=camera.z+t*(q.z-camera.z);
+      return {x:(x-wall.bottomLeft.x)*wall.tx+(z-wall.bottomLeft.z)*wall.tz,
+        y:y-wall.topLeft.y};
+    };
+    const shape=penetrated.map(toWall);
+    if (shape.some(p=>!p||!Number.isFinite(p.x+p.y))) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(shape[0].x,shape[0].y);
+    for (let i=1;i<shape.length;i++) ctx.lineTo(shape[i].x,shape[i].y);
+    ctx.closePath();
+    ctx.clip();
+    ctx.globalCompositeOperation='destination-out';
+
+    // Canvas 2D has no projective drawImage transform. Split the source into
+    // small triangles; each has an affine mapping to the wall, approximating
+    // the true homography without ever inspecting cross-origin image pixels.
+    const minX=Math.max(0,Math.floor(Math.min(...penetrated.map(p=>p.x))));
+    const minY=Math.max(0,Math.floor(Math.min(...penetrated.map(p=>p.y))));
+    const maxX=Math.min(frame.w,Math.ceil(Math.max(...penetrated.map(p=>p.x))));
+    const maxY=Math.min(frame.h,Math.ceil(Math.max(...penetrated.map(p=>p.y))));
+    const step=8;
+    for (let sy=minY;sy<maxY;sy+=step) {
+      const sh=Math.min(step,maxY-sy);
+      for (let sx=minX;sx<maxX;sx+=step) {
+        const sw=Math.min(step,maxX-sx);
+        const p0=toWall({x:sx,y:sy});
+        const p1=toWall({x:sx+sw,y:sy});
+        const p2=toWall({x:sx+sw,y:sy+sh});
+        const p3=toWall({x:sx,y:sy+sh});
+        if ([p0,p1,p2,p3].some(p=>!p||!Number.isFinite(p.x+p.y))) continue;
+        const drawTriangle=(a,b,c,u,v)=>{
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(a.x,a.y);
+          ctx.lineTo(b.x,b.y);
+          ctx.lineTo(c.x,c.y);
+          ctx.closePath();
+          ctx.clip();
+          const ax=u.x,ay=u.y,bx=v.x,by=v.y;
+          // Source cell's X/Y axes mapped onto this triangle's destination.
+          const tx=a.x-ax*(frame.x+sx)-bx*(frame.y+sy);
+          const ty=a.y-ay*(frame.x+sx)-by*(frame.y+sy);
+          ctx.setTransform(ax,ay,bx,by,tx,ty);
+          ctx.drawImage(img,frame.x+sx,frame.y+sy,sw,sh,
+            frame.x+sx,frame.y+sy,sw,sh);
+          ctx.restore();
+        };
+        drawTriangle(p0,p1,p2,
+          {x:(p1.x-p0.x)/sw,y:(p1.y-p0.y)/sw},
+          {x:(p2.x-p1.x)/sh,y:(p2.y-p1.y)/sh});
+        drawTriangle(p0,p2,p3,
+          {x:(p2.x-p3.x)/sw,y:(p2.y-p3.y)/sw},
+          {x:(p3.x-p0.x)/sh,y:(p3.y-p0.y)/sh});
+      }
+    }
+    ctx.restore();
+  }
+
+  // Match the old apparent height where practical while keeping the character's
+  // world-vertical height constant: vertical scale is exactly 1 / cos(tilt).
+  function chooseTilt(sprite, frame, facing, desired, cosine, pitchSin, yawSin, yawCos) {
+    // Skip the angle search at shallow pitch; ease the tilt in from zero.
+    const startPitch=12, fullPitch=35;
+    const pitch=Math.abs(camera.pitch);
+    if (pitch<=startPitch) return 0;
+    const progress=Math.min(1,(pitch-startPitch)/(fullPitch-startPitch));
+    const fade=progress*progress*(3-2*progress);
+    const dx=sprite.x-camera.x, dz=sprite.z-camera.z;
+    const cameraZ=-yawSin*dx+yawCos*dz;
+    const camY=cosine*-camera.y+pitchSin*cameraZ;
+    const depth=pitchSin*-camera.y-cosine*cameraZ;
+    if (depth<=1) return 0;
+    const x=yawCos*dx+yawSin*dz;
+    const H=frame.ay*sprite.scale;
+    const footX=850*x/depth, footY=850*camY/depth;
+    const target=850*H*desired/depth;
+    const length = angle => {
+      const forward=-H*Math.tan(angle)*Math.sign(pitchSin);
+      const topX=x+forward*(yawCos*Math.sin(facing)+yawSin*Math.cos(facing));
+      const topZ=cameraZ+forward*(-yawSin*Math.sin(facing)+yawCos*Math.cos(facing));
+      const topY=cosine*(-camera.y-H)+pitchSin*topZ;
+      const topDepth=pitchSin*(-camera.y-H)-cosine*topZ;
+      if (topDepth<=1) return Infinity;
+      return Math.hypot(850*topX/topDepth-footX,850*topY/topDepth-footY);
+    };
+    let best=0, error=Math.abs(length(0)-target);
+    // Search for the smallest tilt giving a comparable projected length.
+    // Clipping to 42° prevents extreme lateral visual displacement.
+    const step=2*RAD;
+    for (let angle=step; angle<=42*RAD+1e-7; angle+=step) {
+      const delta=Math.abs(length(angle)-target);
+      if (delta<error) { error=delta; best=angle; }
+    }
+    // Refine around the best sample to avoid visible 2° jumps during flight.
+    let interval=step;
+    for (let i=0; i<8; i++) {
+      interval*=0.5;
+      for (const angle of [best-interval,best+interval]) {
+        if (angle<0 || angle>42*RAD) continue;
+        const delta=Math.abs(length(angle)-target);
+        if (delta<error) { error=delta; best=angle; }
+      }
+    }
+    return best*Math.sign(pitchSin)*fade;
   }
 
   function render() {
@@ -286,24 +661,15 @@
     const yawCos = Math.cos(camera.yaw * RAD);
     for (const sprite of sprites) {
       updateFacing(sprite);
-      // Keep the sprite upright and point its plane toward the eye's horizontal position.
-      const dx = sprite.x - camera.x;
-      const dz = sprite.z - camera.z;
-      const depthZ = -yawSin * dx + yawCos * dz;
-      const footY = cosine * -camera.y + pitchSin * depthZ;
-      const depth = pitchSin * -camera.y - cosine * depthZ;
-      const topHeight = sheets[sprite.source].frames[sprite.activeView].ay * sprite.scale;
-      // Correct the entire projected vertical axis; cap growth near edge-on views.
-      const horizontalOffset = yawCos * dx + yawSin * dz;
-      const projectedVertical = Math.hypot(horizontalOffset * pitchSin, depth * cosine - footY * pitchSin);
-      const denominator = projectedVertical + topHeight * desired * pitchSin;
-      const correction = depth > 0 && denominator > 0
-        ? Math.min(2.5, desired * depth / denominator) : 1;
+      // Tilt away from the eye when looking down, while preserving logical vertical height.
       const facing = Math.atan2(camera.x - sprite.x, camera.z - sprite.z);
+      const frame=sheets[sprite.source].frames[sprite.activeView];
+      const tilt=chooseTilt(sprite, frame, facing, desired, cosine, pitchSin, yawSin, yawCos);
       sprite.el.style.transform =
         `translate3d(${sprite.x}px,0px,${sprite.z}px) ` +
-        `rotateY(${facing / RAD}deg) ` +
-        `scale(${sprite.scale / RASTER_SCALE},${sprite.scale * correction / RASTER_SCALE})`;
+        `rotateY(${facing / RAD}deg) rotateX(${tilt / RAD}deg) ` +
+        `scale(${sprite.scale / RASTER_SCALE},${sprite.scale / (Math.cos(tilt)*RASTER_SCALE)})`;
+      if (sprite.blocker) updateWallIntersection(sprite, frame, tilt, facing);
     }
     strengthEl.disabled = mode !== 'soft';
     document.getElementById('strengthValue').textContent = `${strengthEl.value}%`;
