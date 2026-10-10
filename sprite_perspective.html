@@ -110,6 +110,7 @@
   // eight real directions, and four stance frames in columns 0–3.
   const CELL = 128;
   const STANCE_COLUMN = 0;
+  const RASTER_SCALE = 4;
   const sheets = {
     zombie: {url:'https://opengameart.org/sites/default/files/zombie_0.png'},
     skeleton: {url:'https://opengameart.org/sites/default/files/skeleton_0.png'},
@@ -179,13 +180,15 @@
     const el = document.createElement('div');
     el.className = `sprite ${def.source}`;
     el.title = def.name;
+    // Rasterize the sheet at 4×; the final transform compensates for this size.
+    el.style.backgroundSize = `auto ${8 * CELL * RASTER_SCALE}px`;
     const frame = sheets[def.source].frames[0];
-    el.style.width = `${frame.w}px`;
-    el.style.height = `${frame.h}px`;
-    el.style.left = `${-frame.ax}px`;
-    el.style.top = `${-frame.ay}px`;
-    el.style.transformOrigin = `${frame.ax}px ${frame.ay}px`;
-    el.style.backgroundPosition = `${-frame.x}px ${-frame.y}px`;
+    el.style.width = `${frame.w * RASTER_SCALE}px`;
+    el.style.height = `${frame.h * RASTER_SCALE}px`;
+    el.style.left = `${-frame.ax * RASTER_SCALE}px`;
+    el.style.top = `${-frame.ay * RASTER_SCALE}px`;
+    el.style.transformOrigin = `${frame.ax * RASTER_SCALE}px ${frame.ay * RASTER_SCALE}px`;
+    el.style.backgroundPosition = `${-frame.x * RASTER_SCALE}px ${-frame.y * RASTER_SCALE}px`;
     world.append(el);
     sprites.push({ ...def, el, scale:def.height / sheets[def.source].visualHeight, activeView:-1 });
   }
@@ -258,12 +261,12 @@
     sprite.activeView = view;
     const sheet = sheets[sprite.source];
     const frame = sheet.frames[view];
-    sprite.el.style.width = `${frame.w}px`;
-    sprite.el.style.height = `${frame.h}px`;
-    sprite.el.style.left = `${-frame.ax}px`;
-    sprite.el.style.top = `${-frame.ay}px`;
-    sprite.el.style.transformOrigin = `${frame.ax}px ${frame.ay}px`;
-    sprite.el.style.backgroundPosition = `${-frame.x}px ${-frame.y}px`;
+    sprite.el.style.width = `${frame.w * RASTER_SCALE}px`;
+    sprite.el.style.height = `${frame.h * RASTER_SCALE}px`;
+    sprite.el.style.left = `${-frame.ax * RASTER_SCALE}px`;
+    sprite.el.style.top = `${-frame.ay * RASTER_SCALE}px`;
+    sprite.el.style.transformOrigin = `${frame.ax * RASTER_SCALE}px ${frame.ay * RASTER_SCALE}px`;
+    sprite.el.style.backgroundPosition = `${-frame.x * RASTER_SCALE}px ${-frame.y * RASTER_SCALE}px`;
     sprite.scale = sprite.height / sheet.visualHeight;
   }
 
@@ -300,7 +303,7 @@
       sprite.el.style.transform =
         `translate3d(${sprite.x}px,0px,${sprite.z}px) ` +
         `rotateY(${facing / RAD}deg) ` +
-        `scale(${sprite.scale},${sprite.scale * correction})`;
+        `scale(${sprite.scale / RASTER_SCALE},${sprite.scale * correction / RASTER_SCALE})`;
     }
     strengthEl.disabled = mode !== 'soft';
     document.getElementById('strengthValue').textContent = `${strengthEl.value}%`;
