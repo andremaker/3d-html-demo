@@ -275,23 +275,32 @@
     const mode = modeEl.value;
     const strength = Number(strengthEl.value) / 100;
     const cosine = Math.abs(Math.cos(camera.pitch * RAD));
-    const compression = mode === 'physical' ? cosine
+    const desired = mode === 'physical' ? cosine
       : mode === 'soft' ? 1 - strength * (1 - cosine)
       : 1;
-    // Center of the screen plane in world coordinates (850px CSS perspective).
-    const forward = 850 * Math.cos(camera.pitch * RAD);
-    const screenX = camera.x + Math.sin(camera.yaw * RAD) * forward;
-    const screenZ = camera.z - Math.cos(camera.yaw * RAD) * forward;
+    const pitchSin = Math.sin(camera.pitch * RAD);
+    const yawSin = Math.sin(camera.yaw * RAD);
+    const yawCos = Math.cos(camera.yaw * RAD);
     for (const sprite of sprites) {
       updateFacing(sprite);
-      // Keep the sprite upright and point its plane toward the screen center.
-      const targetX = screenX - sprite.x;
-      const targetZ = screenZ - sprite.z;
-      const facing = Math.atan2( camera.x - sprite.x, camera.z - sprite.z);
+      // Keep the sprite upright and point its plane toward the eye's horizontal position.
+      const dx = sprite.x - camera.x;
+      const dz = sprite.z - camera.z;
+      const depthZ = -yawSin * dx + yawCos * dz;
+      const footY = cosine * -camera.y + pitchSin * depthZ;
+      const depth = pitchSin * -camera.y - cosine * depthZ;
+      const topHeight = sheets[sprite.source].frames[sprite.activeView].ay * sprite.scale;
+      // Correct the entire projected vertical axis; cap growth near edge-on views.
+      const horizontalOffset = yawCos * dx + yawSin * dz;
+      const projectedVertical = Math.hypot(horizontalOffset * pitchSin, depth * cosine - footY * pitchSin);
+      const denominator = projectedVertical + topHeight * desired * pitchSin;
+      const correction = depth > 0 && denominator > 0
+        ? Math.min(2.5, desired * depth / denominator) : 1;
+      const facing = Math.atan2(camera.x - sprite.x, camera.z - sprite.z);
       sprite.el.style.transform =
         `translate3d(${sprite.x}px,0px,${sprite.z}px) ` +
         `rotateY(${facing / RAD}deg) ` +
-        `scale(${sprite.scale},${sprite.scale * compression})`;
+        `scale(${sprite.scale},${sprite.scale * correction})`;
     }
     strengthEl.disabled = mode !== 'soft';
     document.getElementById('strengthValue').textContent = `${strengthEl.value}%`;
