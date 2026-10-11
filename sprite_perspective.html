@@ -10,23 +10,18 @@
   * { box-sizing:border-box; }
   body { margin:0; overflow:hidden; background:#0d1724; color:#e8effb; }
   #viewport { position:fixed; inset:0; overflow:hidden; perspective:850px; perspective-origin:50% 50%;
-    background:linear-gradient(#18283b 0%,#526a7d 56%,#9aa6a8 100%); cursor:crosshair; }
+    background:linear-gradient(#18283b 0%,#526a7d 56%,#9aa6a8 100%); }
   /* Align the camera-space origin with CSS perspective’s virtual eye (z=850). */
   #scene { position:absolute; top:50%; left:50%; width:0; height:0;
     transform-style:preserve-3d; transform:translateZ(850px); }
   #world { position:absolute; top:0; left:0; width:0; height:0;
     transform-style:preserve-3d; }
   #floor { position:absolute; left:-1500px; top:-1500px; width:3000px; height:3000px;
-    transform:rotateX(90deg); backface-visibility:visible;
-    background-color:#344e52;
-    background-image:linear-gradient(#adc3ba35 1px,transparent 1px),
-      linear-gradient(90deg,#adc3ba35 1px,transparent 1px),
-      linear-gradient(#142d3660 2px,transparent 2px),
-      linear-gradient(90deg,#142d3660 2px,transparent 2px);
-    background-size:50px 50px,50px 50px,250px 250px,250px 250px;
-    box-shadow:inset 0 0 220px #0007; }
+    transform:rotateX(90deg); transform-style:flat; backface-visibility:visible; }
+  #floor canvas { display:block; width:100%; height:100%; }
   .sprite { position:absolute; background-repeat:no-repeat; image-rendering:pixelated;
     transform-origin:center bottom; backface-visibility:visible; will-change:transform; }
+  .sprite canvas { display:block; width:100%; height:100%; image-rendering:inherit; }
   .sprite.zombie { background-image:url('https://opengameart.org/sites/default/files/zombie_0.png'); }
   .sprite.skeleton { background-image:url('https://opengameart.org/sites/default/files/skeleton_0.png'); }
   .sprite.goblin { background-image:url('https://opengameart.org/sites/default/files/goblin.png'); }
@@ -78,8 +73,6 @@
   #instructions { position:fixed; right:16px; bottom:16px; padding:12px 15px;
     background:#0d1724d9; border:1px solid #d3e5ff25; border-radius:12px;
     color:#c7d7e7; font-size:12px; pointer-events:none; }
-  #reticle { position:fixed; left:50%; top:50%; width:10px; height:10px;
-    transform:translate(-50%,-50%); border:1px solid #fff9; border-radius:50%; pointer-events:none; }
   .key { display:inline-block; border:1px solid #9cb5c855; border-radius:4px;
     padding:1px 4px; color:white; margin:0 2px; }
   @media (max-width:700px) { #instructions { bottom:12px; left:16px; right:auto; }
@@ -90,7 +83,6 @@
 <div id="viewport" aria-label="CSS 3D flying scene">
   <div id="scene"><div id="world"><div id="floor"></div></div></div>
 </div>
-<div id="reticle"></div>
 <section id="hud">
   <h1>Eight-direction sprite sheets</h1>
   <div id="controls">
@@ -119,11 +111,12 @@
   'use strict';
   const viewport = document.getElementById('viewport');
   const world = document.getElementById('world');
+  const floor = document.getElementById('floor');
   const modeEl = document.getElementById('mode');
   const strengthEl = document.getElementById('strength');
   const speedEl = document.getElementById('speed');
   const stats = document.getElementById('stats');
-  const initial = { x:0, y:-420, z:1050, yaw:0, pitch:28 };
+  const initial = { x:50, y:-20, z:1050, yaw:0, pitch:0 };
   const camera = { ...initial };
   const keys = new Set();
   const RAD = Math.PI / 180;
@@ -134,6 +127,20 @@
   const CELL = 128;
   const STANCE_COLUMN = 0;
   const RASTER_SCALE = 4;
+  const BASE_FOOT_HEIGHT = 112;
+  // Sink a few source pixels into the ground; only the floor shows a 3D inset copy.
+  const GROUND_SINK_PIXELS = 5;
+  // Per-direction frame bounds and ground-contact points from the supplied sheets.
+  // [left, top, right, bottom, footX, footY] in the original 128×128 cells.
+  // A sword or cast shadow can extend below the feet: neither defines the pivot.
+  const FOOT_FRAMES = {
+    zombie: [[53,45,79,103,58,102],[49,44,81,100,56,99],[52,44,83,100,67,99],[55,45,85,100,65,99],
+      [56,47,85,101,61,100],[55,49,82,101,60,100],[54,49,83,103,72,102],[54,47,81,104,65,103]],
+    skeleton: [[36,45,89,103,71,103],[33,41,118,104,63,104],[41,40,121,101,55,101],[47,41,94,111,55,99],
+      [45,45,100,112,68,103],[18,48,102,107,64,107],[16,49,94,105,53,98],[41,48,82,100,55,99]],
+    goblin: [[42,67,78,101,64,99],[53,66,80,101,63,100],[53,67,79,102,65,101],[55,68,86,104,64,99],
+      [50,68,88,102,63,101],[48,70,78,102,63,101],[53,71,76,102,63,101],[43,71,75,102,64,101]]
+  };
   const sheets = {
     zombie: {url:'https://opengameart.org/sites/default/files/zombie_0.png'},
     skeleton: {url:'https://opengameart.org/sites/default/files/skeleton_0.png'},
@@ -143,10 +150,11 @@
   // Measure the visible bounds and foot anchors once for each sheet.
   // If cross-origin pixel access is unavailable, the original grid still works.
   for (const [source, sheet] of Object.entries(sheets)) {
-    sheet.visualHeight = 80;
-    sheet.frames = Array.from({length:8}, (_, row) => ({
-      x:STANCE_COLUMN*CELL, y:row*CELL, w:CELL, h:CELL, ax:CELL/2, ay:112
+    sheet.frames = FOOT_FRAMES[source].map(([left, top, right, bottom, footX, footY], row) => ({
+      x:STANCE_COLUMN*CELL+left, y:row*CELL+top,
+      w:right-left, h:bottom-top, ax:footX-left, ay:footY-top
     }));
+    sheet.visualHeight = Math.max(...sheet.frames.map(frame => frame.ay));
     const image = new Image();
     // A regular image can always be painted onto a Canvas, even when the
     // image host does not allow reading its pixels through CORS.
@@ -175,20 +183,45 @@
             }
           }
           if (right<left) throw new Error('Missing directional frame');
+          const [, , , , footX, footY] = FOOT_FRAMES[source][row];
           frames.push({
             x:STANCE_COLUMN*CELL+left, y:row*CELL+top, w:right-left+1, h:bottom-top+1,
-            ax:CELL/2-left, ay:112-top
+            ax:footX-left, ay:footY-top
           });
         }
         sheet.frames = frames;
         sheet.alphaFrames = alphaFrames;
         sheet.visualHeight = Math.max(...frames.map(frame => frame.h));
-        for (const sprite of sprites) {
-          if (sprite.source === source) sprite.activeView = -1;
-        }
       } catch (_) {
         // Preserve the unmodified 128×128 frame cells when readback is blocked.
       }
+      // Prepare the solid sprite-shaped wall masks once per frame.
+      // Without CORS readback, repeated source-over draws strengthen partial alpha.
+      sheet.masks = sheet.frames.map((frame, row) => {
+        const mask = document.createElement('canvas');
+        mask.width = frame.w;
+        mask.height = frame.h;
+        const context = mask.getContext('2d');
+        if (sheet.alphaFrames) {
+          const alpha = sheet.alphaFrames[row];
+          const pixels = context.createImageData(frame.w, frame.h);
+          const offsetX = frame.x - STANCE_COLUMN * CELL;
+          const offsetY = frame.y - row * CELL;
+          for (let y=0; y<frame.h; y++) {
+            for (let x=0; x<frame.w; x++) {
+              if (alpha[(offsetY+y)*CELL+offsetX+x] >= 8)
+                pixels.data[(y*frame.w+x)*4+3] = 255;
+            }
+          }
+          context.putImageData(pixels,0,0);
+        } else {
+          for (let pass=0; pass<32; pass++)
+            context.drawImage(image,frame.x,frame.y,frame.w,frame.h,0,0,frame.w,frame.h);
+        }
+        return mask;
+      });
+      // Refresh the visible texture after loading, even when CORS blocks readback.
+      for (const sprite of sprites) if (sprite.source === source) sprite.activeView = -1;
     };
     image.src = sheet.url;
   }
@@ -214,6 +247,7 @@
     [0, { yaw: 0, gap: 0.22 }],
     [2, { yaw: 25, gap: 0.25 }],
     [3, { yaw: -30, gap: 0.28 }],
+    [4, { yaw: 45, gap: 0.30 }],
     [6, { yaw: -15, gap: 0.33 }],
     [8, { yaw: -40, gap: 0.36 }],
     [11, { yaw: 15, gap: 0.40 }]
@@ -300,9 +334,21 @@
     el.style.top = `${-frame.ay * RASTER_SCALE}px`;
     el.style.transformOrigin = `${frame.ax * RASTER_SCALE}px ${frame.ay * RASTER_SCALE}px`;
     el.style.backgroundPosition = `${-frame.x * RASTER_SCALE}px ${-frame.y * RASTER_SCALE}px`;
+    const texture = document.createElement('canvas');
+    el.append(texture);
     world.append(el);
 
-    sprites.push({ ...def, el, blocker, wallCanvas, scale:def.height / frame.ay, activeView:-1 });
+    // A duplicate in the floor's independent 3D context. It shares the
+    // visible frame pixels but is flattened into the floor before the outer
+    // camera projection, so the floor cannot depth-occlude this copy.
+    const floorEl = document.createElement('div');
+    floorEl.className = el.className;
+    const floorTexture = document.createElement('canvas');
+    floorEl.append(floorTexture);
+    floor.append(floorEl);
+
+    sprites.push({ ...def, el, texture, floorEl, floorTexture, blocker, wallCanvas,
+      scale:def.height / BASE_FOOT_HEIGHT, activeView:-1 });
   }
 
   // Origin marker, useful for judging how the ground moves during flight.
@@ -379,9 +425,140 @@
     sprite.el.style.top = `${-frame.ay * RASTER_SCALE}px`;
     sprite.el.style.transformOrigin = `${frame.ax * RASTER_SCALE}px ${frame.ay * RASTER_SCALE}px`;
     sprite.el.style.backgroundPosition = `${-frame.x * RASTER_SCALE}px ${-frame.y * RASTER_SCALE}px`;
-    sprite.scale = sprite.height / frame.ay;
+    sprite.floorEl.style.width = sprite.el.style.width;
+    sprite.floorEl.style.height = sprite.el.style.height;
+    sprite.floorEl.style.transformOrigin = sprite.el.style.transformOrigin;
+    sprite.floorEl.style.backgroundPosition = sprite.el.style.backgroundPosition;
+    sprite.floorEl.style.backgroundSize = sprite.el.style.backgroundSize;
+    if (sheet.image) {
+      // Render the original sprite once at the same 4× raster size used by CSS.
+      // The floor copy receives the same rasterized pixels as the visible sprite.
+      const texture = sprite.texture;
+      texture.width = frame.w * RASTER_SCALE;
+      texture.height = frame.h * RASTER_SCALE;
+      const ctx = texture.getContext('2d');
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(sheet.image,frame.x,frame.y,frame.w,frame.h,
+        0,0,texture.width,texture.height);
+      // Copy the already-rasterized original pixels, not a new sampling
+      // of the sprite sheet or a projection into the floor texture.
+      const floorTexture = sprite.floorTexture;
+      floorTexture.width = texture.width;
+      floorTexture.height = texture.height;
+      const floorCtx = floorTexture.getContext('2d');
+      floorCtx.imageSmoothingEnabled = false;
+      floorCtx.drawImage(texture,0,0);
+      sprite.el.style.backgroundImage = 'none';
+      sprite.floorEl.style.backgroundImage = 'none';
+    }
+    sprite.scale = sprite.height / BASE_FOOT_HEIGHT;
   }
 
+  // The grid remains a texture on the actual HTML floor plane. Sprite copies
+  // are instead rendered inside its local perspective and flattened with it.
+  const floorCanvas = document.createElement('canvas');
+  floorCanvas.width = floor.offsetWidth;
+  floorCanvas.height = floor.offsetHeight;
+  floor.prepend(floorCanvas);
+  const floorContext = floorCanvas.getContext('2d');
+
+  function paintFloorRegion(x0, y0, x1, y1) {
+    const ctx = floorContext;
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.beginPath();
+    ctx.rect(x0,y0,x1-x0,y1-y0);
+    ctx.clip();
+    ctx.clearRect(x0,y0,x1-x0,y1-y0);
+    ctx.fillStyle = '#344e52';
+    ctx.fillRect(x0,y0,x1-x0,y1-y0);
+    // The original floor's 250px and 50px grids, in the same local coordinates.
+    for (const [step, thickness, color] of [
+      [250,2,'#142d3660'],[50,1,'#adc3ba35']
+    ]) {
+      ctx.fillStyle=color;
+      for (let x=Math.floor(x0/step)*step; x<x1; x+=step)
+        ctx.fillRect(x, y0, thickness, y1-y0);
+      for (let y=Math.floor(y0/step)*step; y<y1; y+=step)
+        ctx.fillRect(x0, y, x1-x0, thickness);
+    }
+    ctx.restore();
+  }
+  paintFloorRegion(0,0,floorCanvas.width,floorCanvas.height);
+
+  // Project the solid sprite alpha mask onto a vertical house wall.
+  function projectSprite(ctx, sprite, frame, polygon, outline, project) {
+    const image=sheets[sprite.source].masks?.[sprite.activeView];
+    if (!image) return;
+    const raster=1;
+    ctx.save();
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.beginPath();
+    ctx.moveTo(outline[0].x,outline[0].y);
+    for (let i=1;i<outline.length;i++) ctx.lineTo(outline[i].x,outline[i].y);
+    ctx.closePath();
+    ctx.clip();
+    ctx.globalCompositeOperation='destination-out';
+    ctx.imageSmoothingEnabled=false;
+
+    const minX=Math.max(0,Math.floor(Math.min(...polygon.map(p=>p.x))));
+    const minY=Math.max(0,Math.floor(Math.min(...polygon.map(p=>p.y))));
+    const maxX=Math.min(frame.w,Math.ceil(Math.max(...polygon.map(p=>p.x))));
+    const maxY=Math.min(frame.h,Math.ceil(Math.max(...polygon.map(p=>p.y))));
+    const step=6;
+    for (let sy=minY;sy<maxY;sy+=step) {
+      const sh=Math.min(step,maxY-sy);
+      for (let sx=minX;sx<maxX;sx+=step) {
+        const sw=Math.min(step,maxX-sx);
+        const p0=project({x:sx,y:sy});
+        const p1=project({x:sx+sw,y:sy});
+        const p2=project({x:sx+sw,y:sy+sh});
+        const p3=project({x:sx,y:sy+sh});
+        if ([p0,p1,p2,p3].some(p=>!p||!Number.isFinite(p.x+p.y))) continue;
+        const drawTriangle=(a,b,c,u,v)=>{
+          ctx.save();
+          // Overlap neighboring tiles slightly so anti-aliased triangle edges
+          // cannot leave seams in the projected artwork.
+          const vertices=[a,b,c];
+          const area=(b.x-a.x)*(c.y-a.y)-(b.y-a.y)*(c.x-a.x);
+          const winding=Math.sign(area);
+          const normals=vertices.map((p,i)=>{
+            const q=vertices[(i+1)%3];
+            const dx=q.x-p.x,dy=q.y-p.y,len=Math.hypot(dx,dy)||1;
+            return {x:winding*dy/len,y:-winding*dx/len};
+          });
+          ctx.beginPath();
+          vertices.forEach((p,i)=>{
+            const prev=normals[(i+2)%3],next=normals[i];
+            const dot=prev.x*next.x+prev.y*next.y;
+            let ox=(prev.x+next.x)*1.25/Math.max(0.05,1+dot);
+            let oy=(prev.y+next.y)*1.25/Math.max(0.05,1+dot);
+            const distance=Math.hypot(ox,oy);
+            if (distance>7) {ox*=7/distance;oy*=7/distance;}
+            if (i===0) ctx.moveTo(p.x+ox,p.y+oy);
+            else ctx.lineTo(p.x+ox,p.y+oy);
+          });
+          ctx.closePath();
+          ctx.clip();
+          const ax=u.x/raster,ay=u.y/raster,bx=v.x/raster,by=v.y/raster;
+          const tx=a.x-ax*sx*raster-bx*sy*raster;
+          const ty=a.y-ay*sx*raster-by*sy*raster;
+          ctx.setTransform(ax,ay,bx,by,tx,ty);
+          // Draw beyond the tile borders; only the enlarged triangle clip limits it.
+          ctx.drawImage(image,0,0);
+          ctx.restore();
+        };
+        drawTriangle(p0,p1,p2,
+          {x:(p1.x-p0.x)/sw,y:(p1.y-p0.y)/sw},
+          {x:(p2.x-p1.x)/sh,y:(p2.y-p1.y)/sh});
+        drawTriangle(p0,p2,p3,
+          {x:(p2.x-p3.x)/sw,y:(p2.y-p3.y)/sw},
+          {x:(p3.x-p0.x)/sh,y:(p3.y-p0.y)/sh});
+      }
+    }
+    ctx.restore();
+  }
   // Read the physical wall geometry from its HTML element, not from a duplicate model.
   function wallGeometry(el) {
     const style = getComputedStyle(el);
@@ -414,17 +591,15 @@
     return result;
   }
 
-  // Paint each HTML wall into its own Canvas and erase only the opaque pixels
-  // of the sprite that extend through it. Drawing a cross-origin image is fine:
-  // unlike getImageData() and toDataURL(), this never reads its pixels back.
+  // Paint each HTML wall before applying the shared sprite-alpha mask.
   function updateWallIntersection(sprite, frame, tilt, facing) {
     const wall = wallGeometry(sprite.blocker);
     const sheet = sheets[sprite.source];
-    const img = sheet.image;
     const maskKey=[camera.x,camera.y,camera.z,facing,tilt,sprite.x,sprite.z,
       sprite.scale,frame.x,frame.y,frame.w,frame.h,
       wall.w,wall.h,wall.topLeft.x,wall.topLeft.y,wall.topLeft.z,
-      wall.tx,wall.tz,wall.center.x,wall.center.z,Boolean(img)].join(',');
+      wall.tx,wall.tz,wall.center.x,wall.center.z,
+      sprite.renderX,sprite.renderY,sprite.renderZ,Boolean(sheet.masks)].join(',');
     if (maskKey===sprite.maskKey) return;
     sprite.maskKey=maskKey;
     const canvas = sprite.wallCanvas;
@@ -498,13 +673,7 @@
     ctx.beginPath();ctx.arc(dx+dw-9,wall.h*0.84,3.5,0,Math.PI*2);ctx.fill();
     ctx.fillStyle='#9c856d';
     ctx.fillRect(dx-12,wall.h-5,dw+24,5);
-    const houseNumber=Number(sprite.blocker.dataset.wall.match(/House (\d+)/)?.[1] || 1);
-    ctx.fillStyle='#7d5037';
-    ctx.fillRect(wall.w*0.43,wall.h*0.17,wall.w*0.14,wall.h*0.075);
-    ctx.fillStyle='#fff0d1';ctx.textAlign='center';
-    ctx.font='700 12px Georgia,serif';
-    ctx.fillText(houseNumber.toString(),wall.w*0.5,wall.h*0.223);
-    if (!img) return;
+    if (!sheet.masks) return;
 
     const sinFacing=Math.sin(facing), cosFacing=Math.cos(facing);
     const lean=Math.tan(tilt);
@@ -516,8 +685,8 @@
     const imagePoint=p=>{
       const across=(p.x-frame.ax)*sprite.scale;
       const up=(frame.ay-p.y)*sprite.scale;
-      return {x:sprite.x+across*cosFacing-up*lean*sinFacing,
-        y:-up,z:sprite.z-across*sinFacing-up*lean*cosFacing};
+      return {x:sprite.renderX+across*cosFacing-up*lean*sinFacing,
+        y:sprite.renderY-up,z:sprite.renderZ-across*sinFacing-up*lean*cosFacing};
     };
     const side=Math.sign(footSide);
     let penetrated=[{x:0,y:0},{x:frame.w,y:0},
@@ -544,57 +713,7 @@
     };
     const shape=penetrated.map(toWall);
     if (shape.some(p=>!p||!Number.isFinite(p.x+p.y))) return;
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(shape[0].x,shape[0].y);
-    for (let i=1;i<shape.length;i++) ctx.lineTo(shape[i].x,shape[i].y);
-    ctx.closePath();
-    ctx.clip();
-    ctx.globalCompositeOperation='destination-out';
-
-    // Canvas 2D has no projective drawImage transform. Split the source into
-    // small triangles; each has an affine mapping to the wall, approximating
-    // the true homography without ever inspecting cross-origin image pixels.
-    const minX=Math.max(0,Math.floor(Math.min(...penetrated.map(p=>p.x))));
-    const minY=Math.max(0,Math.floor(Math.min(...penetrated.map(p=>p.y))));
-    const maxX=Math.min(frame.w,Math.ceil(Math.max(...penetrated.map(p=>p.x))));
-    const maxY=Math.min(frame.h,Math.ceil(Math.max(...penetrated.map(p=>p.y))));
-    const step=8;
-    for (let sy=minY;sy<maxY;sy+=step) {
-      const sh=Math.min(step,maxY-sy);
-      for (let sx=minX;sx<maxX;sx+=step) {
-        const sw=Math.min(step,maxX-sx);
-        const p0=toWall({x:sx,y:sy});
-        const p1=toWall({x:sx+sw,y:sy});
-        const p2=toWall({x:sx+sw,y:sy+sh});
-        const p3=toWall({x:sx,y:sy+sh});
-        if ([p0,p1,p2,p3].some(p=>!p||!Number.isFinite(p.x+p.y))) continue;
-        const drawTriangle=(a,b,c,u,v)=>{
-          ctx.save();
-          ctx.beginPath();
-          ctx.moveTo(a.x,a.y);
-          ctx.lineTo(b.x,b.y);
-          ctx.lineTo(c.x,c.y);
-          ctx.closePath();
-          ctx.clip();
-          const ax=u.x,ay=u.y,bx=v.x,by=v.y;
-          // Source cell's X/Y axes mapped onto this triangle's destination.
-          const tx=a.x-ax*(frame.x+sx)-bx*(frame.y+sy);
-          const ty=a.y-ay*(frame.x+sx)-by*(frame.y+sy);
-          ctx.setTransform(ax,ay,bx,by,tx,ty);
-          ctx.drawImage(img,frame.x+sx,frame.y+sy,sw,sh,
-            frame.x+sx,frame.y+sy,sw,sh);
-          ctx.restore();
-        };
-        drawTriangle(p0,p1,p2,
-          {x:(p1.x-p0.x)/sw,y:(p1.y-p0.y)/sw},
-          {x:(p2.x-p1.x)/sh,y:(p2.y-p1.y)/sh});
-        drawTriangle(p0,p2,p3,
-          {x:(p2.x-p3.x)/sw,y:(p2.y-p3.y)/sw},
-          {x:(p3.x-p0.x)/sh,y:(p3.y-p0.y)/sh});
-      }
-    }
-    ctx.restore();
+    projectSprite(ctx,sprite,frame,penetrated,shape,toWall);
   }
 
   // Match the old apparent height where practical while keeping the character's
@@ -659,17 +778,42 @@
     const pitchSin = Math.sin(camera.pitch * RAD);
     const yawSin = Math.sin(camera.yaw * RAD);
     const yawCos = Math.cos(camera.yaw * RAD);
+    // Eye position in the floor's local (X,Z) coordinates and eye altitude
+    // above it. This compensates for the floor's rotation and the main
+    // camera perspective before its descendants are flattened.
+    floor.style.perspective = camera.y < -1 ? `${-camera.y}px` : 'none';
+    floor.style.perspectiveOrigin =
+      `${camera.x-floor.offsetLeft}px ${camera.z-floor.offsetTop}px`;
     for (const sprite of sprites) {
       updateFacing(sprite);
       // Tilt away from the eye when looking down, while preserving logical vertical height.
       const facing = Math.atan2(camera.x - sprite.x, camera.z - sprite.z);
       const frame=sheets[sprite.source].frames[sprite.activeView];
       const tilt=chooseTilt(sprite, frame, facing, desired, cosine, pitchSin, yawSin, yawCos);
+      // Leave the logical XZ position untouched. Slightly sink the artwork into
+      // the ground; the floor's isolated sprite copy reveals the submerged part.
+      sprite.renderX=sprite.x;
+      sprite.renderY=GROUND_SINK_PIXELS*sprite.scale;
+      sprite.renderZ=sprite.z;
       sprite.el.style.transform =
-        `translate3d(${sprite.x}px,0px,${sprite.z}px) ` +
+        `translate3d(${sprite.renderX}px,${sprite.renderY}px,${sprite.renderZ}px) ` +
         `rotateY(${facing / RAD}deg) rotateX(${tilt / RAD}deg) ` +
         `scale(${sprite.scale / RASTER_SCALE},${sprite.scale / (Math.cos(tilt)*RASTER_SCALE)})`;
       if (sprite.blocker) updateWallIntersection(sprite, frame, tilt, facing);
+      // Inverse floor rotation restores the original upright sprite's 3D
+      // orientation. The local eye perspective projects it onto the floor
+      // along exactly the same rays as the main camera.
+      sprite.floorEl.style.left =
+        `${sprite.renderX-floor.offsetLeft-frame.ax*RASTER_SCALE}px`;
+      sprite.floorEl.style.top =
+        `${sprite.renderZ-floor.offsetTop-frame.ay*RASTER_SCALE}px`;
+      sprite.floorEl.style.transform =
+        `translateZ(${-sprite.renderY}px) rotateX(-90deg) ` +
+        `rotateY(${facing / RAD}deg) rotateX(${tilt / RAD}deg) ` +
+        `scale(${sprite.scale / RASTER_SCALE},${sprite.scale / (Math.cos(tilt)*RASTER_SCALE)})`;
+      sprite.floorEl.style.clipPath =
+        `inset(${Math.max(0,frame.ay-GROUND_SINK_PIXELS)*RASTER_SCALE}px 0px 0px 0px)`;
+      sprite.floorEl.style.display = camera.y < -1 ? '' : 'none';
     }
     strengthEl.disabled = mode !== 'soft';
     document.getElementById('strengthValue').textContent = `${strengthEl.value}%`;
