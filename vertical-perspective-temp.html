@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Zombie billboard - unified geometric perspective</title>
+<title>Zombie billboard</title>
 <style>
   :root {font:13px/1.45 system-ui,sans-serif;color-scheme:dark}
   * {box-sizing:border-box}
@@ -25,15 +25,14 @@
     transform-origin:45px 180px;backface-visibility:visible;will-change:transform}
   #sprite {left:-36.486486px;top:-141.559322px;transform-origin:36.486486px 141.559322px}
   #sprite canvas {display:block;width:90px;height:180px;image-rendering:pixelated}
-  #unwarped {background:#d6a45a18;outline:2px dashed #f0b65b;pointer-events:none}
-  #unwarped::before {content:'';position:absolute;left:50%;top:0;bottom:0;border-left:1px dashed #f0b65b}
   .face {position:absolute;transform-origin:center center;backface-visibility:visible;
     display:flex;align-items:center;justify-content:center;text-align:center;
     font-size:11px;font-weight:750;letter-spacing:.03em;color:#18252c;text-shadow:0 1px 0 #ffffff65;
-    border:1px solid #16283675}
+    border:1px solid #16283675;overflow:hidden;padding:2px}
+  .face .vertical-label {writing-mode:vertical-rl;text-orientation:mixed;white-space:nowrap}
   .foot {position:absolute;width:12px;height:12px;left:-6px;top:-6px;border-radius:50%;
     background:#fff8c5;box-shadow:0 0 15px #fff8c5;transform:rotateX(90deg)}
-  #measure,#transverseOverlay {position:fixed;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+  #transverseOverlay {position:fixed;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
   #reticle {position:fixed;left:50%;top:50%;width:10px;height:10px;pointer-events:none;
     transform:translate(-50%,-50%);border:1px solid #ffffffa6;border-radius:50%}
   #panel {position:fixed;top:14px;left:14px;width:min(352px,calc(100vw - 28px));
@@ -66,7 +65,6 @@
   .presets button {cursor:pointer;font-size:11px}
   #stats {white-space:pre-wrap;font:11px/1.6 ui-monospace,monospace;
     color:#aecbe0;border-top:1px solid #ffffff24;margin-top:12px;padding-top:9px}
-  #legend {font-size:11px;color:#c5d9e8;margin-top:8px;display:flex;gap:12px;flex-wrap:wrap}
   #help {position:fixed;right:15px;bottom:15px;background:#0b1927df;
     border:1px solid #98c2d347;border-radius:10px;padding:10px 13px;font-size:11px;color:#d3e8f6;pointer-events:none}
   #help kbd {color:#fff;border:1px solid #e4f5ff5c;padding:0 4px;border-radius:3px}
@@ -75,12 +73,6 @@
 </head>
 <body>
 <div id="viewport"><div id="scene"><div id="world"><div id="ground"></div></div></div></div>
-<svg id="measure" aria-label="Projected geometry overlays">
-  <polygon id="rawOutline" fill="#e9ac5420" stroke="#e9ac54" stroke-width="2" stroke-dasharray="6 5"/>
-  <polygon id="finalOutline" fill="none" stroke="#f9ed7b" stroke-width="1.5" stroke-dasharray="2 4"/>
-  <line id="targetCenter" stroke="#66e3cf" stroke-width="2" stroke-dasharray="5 4"/>
-  <circle id="screenFoot" r="4" fill="#fff1ad"/>
-</svg>
 <svg id="transverseOverlay" aria-label="Top-center transverse position and extrema">
   <line id="transverseGuide" stroke="#f9ed7b" stroke-width="1.5" stroke-dasharray="2 5"/>
   <circle id="transverseMinimum" r="5" fill="#72e4d2" stroke="#173041" stroke-width="1"/>
@@ -89,20 +81,18 @@
 </svg>
 <div id="reticle"></div>
 <section id="panel">
-  <h1>Zombie billboard - unified geometric perspective</h1>
-  <p>Local zombie sprite on an opaque test panel vs. a six-faced 3D prism.</p>
+  <h1>Zombie billboard — four-way perspective correction</h1>
+  <p>Perspective-corrected zombie beside a six-faced reference prism.</p>
   <div class="toggle-row">
-    <div class="toggle-control"><label class="toggle-button mode-toggle"><input type="checkbox" id="mode" checked><span><span class="when-on">4-way correction</span><span class="when-off">Simple Y</span></span></label></div>
-    <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="manualShear" checked><span>Auto inclination</span></label></div>
+    <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="manualShear" checked><span>Auto correction only</span></label></div>
   </div>
   <div class="control"><label for="tilt">Max X tilt <output id="tiltRead">23°</output></label><input id="tilt" type="range" min="0" max="70" value="23"></div>
-  <div class="control"><label for="shear">Manual inclination shear <output id="shearRead">0.00</output></label><input id="shear" type="range" min="-150" max="150" value="0" step="1"></div>
-  <div class="control"><label for="warp">Warp strength <output id="warpRead">250%</output></label><input id="warp" type="range" min="0" max="350" value="250" step="5"></div>
+  <div class="control"><label for="shear">Manual X shear <output id="shearRead">0.00</output></label><input id="shear" type="range" min="-150" max="150" value="0" step="1"></div>
+  <div class="control"><label for="warp">Facing blend strength <output id="warpRead">250%</output></label><input id="warp" type="range" min="0" max="350" value="250" step="5"></div>
   <div class="control"><label for="shortening">Reference shortening <output id="shortRead">0%</output></label><input id="shortening" type="range" min="0" max="100" value="0"></div>
   <div class="toggle-row">
-    <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="overlay"><span>Projection outlines</span></label></div>
-    <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="ghost"><span>Physical plane ghost</span></label></div>
-    <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="debugBox" checked><span>Sprite debug box</span></label></div>
+    <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="debugBox"><span>Sprite debug box</span></label></div>
+    <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="extrema"><span>Min/max guide</span></label></div>
   </div>
   <div class="control"><label for="speed">Flight speed <output id="speedRead">280</output></label><input id="speed" type="range" min="80" max="900" step="20" value="280"></div>
   <div class="presets">
@@ -112,53 +102,52 @@
     <button data-preset="direct">Directly above</button>
     <button data-preset="boundary">Quarter boundary</button>
   </div>
-  <div id="legend"><span style="color:#e9ac54">--- Uncorrected plane</span><span style="color:#66e3cf">--- Vertical reference</span><span style="color:#f9ed7b">··· Corrected plane</span></div>
   <div id="stats">Calculating…</div>
 </section>
 <div id="help"><kbd>W A S D</kbd> move · <kbd>Space</kbd>/<kbd>Shift</kbd> altitude
-  <kbd>Mouse</kbd> look · <kbd>Arrows</kbd> look · <kbd>Ctrl</kbd> boost · <kbd>R</kbd> reset · <kbd>H</kbd> hide UI · <kbd>Esc</kbd> unlock</div>
+  <kbd>Mouse</kbd> look · <kbd>Arrows</kbd> look · <kbd>Ctrl</kbd> boost · <kbd>R</kbd> clear guide · <kbd>H</kbd> hide UI · <kbd>Esc</kbd> unlock</div>
 <script>
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
   const world=$('world'), ground=$('ground'), viewport=$('viewport');
-  const modeEl=$('mode'), tiltEl=$('tilt'), shortenEl=$('shortening');
-  const overlayEl=$('overlay'), ghostEl=$('ghost'), speedEl=$('speed'), warpEl=$('warp'), debugBoxEl=$('debugBox');
+  const tiltEl=$('tilt'), shortenEl=$('shortening');
+  const speedEl=$('speed'), warpEl=$('warp'), debugBoxEl=$('debugBox'), extremaEl=$('extrema');
   const autoShearEl=$('manualShear'), shearEl=$('shear');
   const stats=$('stats'), RAD=Math.PI/180, F=850;
-  const W=90,H=180,D=80;
-  const spritePosition={x:-155,y:0,z:0};
+  const W=90,H=180;
+  const spritePosition={x:0,y:0,z:0};
   const prismPosition={x:155,y:0,z:0};
   const start="overhead";
   const presets={
-    horizontal:{x:0,y:-90,z:650,yaw:0,pitch:5},
-    oblique:{x:0,y:-245,z:460,yaw:0,pitch:38},
-    overhead:{x:-110,y:-800,z:220,yaw:0,pitch:76},
-    direct:{x:-155,y:-850,z:0,yaw:0,pitch:90},
-    boundary:{x:-60,y:-850,z:95,yaw:0,pitch:79}
+    horizontal:{x:121,y:-70,z:506,yaw:0,pitch:5},
+    oblique:{x:121,y:-191,z:358,yaw:0,pitch:38},
+    overhead:{x:35,y:-622,z:171,yaw:0,pitch:76},
+    direct:{x:0,y:-661,z:0,yaw:0,pitch:90},
+    boundary:{x:74,y:-661,z:74,yaw:0,pitch:79}
   };
   const camera={...presets[start]};
   // Extrema belong to the current single-axis WASD movement session.
   const transverseExtrema={axis:null,min:Infinity,max:-Infinity};
   const keys=new Set();
-  // Opaque test panel with the user's zombie PNG in assets/sprites/.
-  // The reference grid and colored edges make the actual plane deformation
-  // visible even through the zombie's transparent pixels.
+  // The canvas displays a directional zombie frame from assets/sprites/.
+  // An optional debug grid and frame reveal the underlying plane boundaries
+  // that would otherwise be hidden by transparent image pixels.
   const img=document.createElement('canvas');
   img.width=W; img.height=H;
   const ctx=img.getContext('2d');
   const zombieImage=new Image();
   let selectedDirection=0, selectedMirror=false;
-  function drawSprite(){
-    ctx.clearRect(0,0,W,H);
-    if(debugBoxEl.checked){
-      ctx.fillStyle='#193949';ctx.fillRect(0,0,W,H);
-      for(let y=0;y<H;y+=20){
-        ctx.fillStyle=y%40===0?'#224e5b':'#1d4351';
-        ctx.fillRect(0,y,W,1);
-      }
-      for(let x=0;x<W;x+=15){ctx.fillStyle='#48788880';ctx.fillRect(x,0,1,H)}
+  // Draw in order: optional debug background, directional frame, optional border.
+  function drawDebugBackground(){
+    ctx.fillStyle='#193949';ctx.fillRect(0,0,W,H);
+    for(let y=0;y<H;y+=20){
+      ctx.fillStyle=y%40===0?'#224e5b':'#1d4351';
+      ctx.fillRect(0,y,W,1);
     }
+    for(let x=0;x<W;x+=15){ctx.fillStyle='#48788880';ctx.fillRect(x,0,1,H)}
+  }
+  function drawZombieTexture(){
     if(zombieImage.complete&&zombieImage.naturalWidth){
       ctx.imageSmoothingEnabled=false;
       ctx.save();
@@ -166,46 +155,67 @@
       ctx.drawImage(zombieImage,selectedDirection*128+50,42,37,59,0,12,90,156);
       ctx.restore();
     }
-    if(debugBoxEl.checked){
-      ctx.fillStyle='#b5e9e2';ctx.fillRect(0,0,W,5);
-      ctx.fillStyle='#eac677';ctx.fillRect(0,H-6,W,6);
-      ctx.strokeStyle='#ffdc7b';ctx.lineWidth=3;
-      ctx.strokeRect(1.5,1.5,W-3,H-3);
-    }
+  }
+  function drawDebugFrame(){
+    ctx.fillStyle='#b5e9e2';ctx.fillRect(0,0,W,5);
+    ctx.fillStyle='#eac677';ctx.fillRect(0,H-6,W,6);
+    ctx.strokeStyle='#ffdc7b';ctx.lineWidth=3;
+    ctx.strokeRect(1.5,1.5,W-3,H-3);
+  }
+  function drawSprite(){
+    ctx.clearRect(0,0,W,H);
+    if(debugBoxEl.checked)drawDebugBackground();
+    drawZombieTexture();
+    if(debugBoxEl.checked)drawDebugFrame();
   }
   zombieImage.onload=drawSprite;
   debugBoxEl.addEventListener('change',drawSprite);
   drawSprite();
   zombieImage.src='assets/sprites/zombie.png';
-  const sprite=document.createElement('div');
-  sprite.id='sprite';sprite.className='plane';sprite.append(img);world.append(sprite);
-  const topCenter=document.createElement('span');
-  topCenter.style.cssText='position:absolute;left:50%;top:0;width:0;height:0;pointer-events:none';
-  sprite.append(topCenter);
-  const ghost=document.createElement('div');
-  ghost.id='unwarped';ghost.className='plane';world.append(ghost);
-  // A real closed rectangular prism: six distinct shaded faces.
+  // Construct the sprite, six prism faces, and their two ground markers.
+  function createSprite(){
+    const sprite=document.createElement('div');
+    sprite.id='sprite';sprite.className='plane';sprite.append(img);world.append(sprite);
+    const topCenter=document.createElement('span');
+    topCenter.style.cssText='position:absolute;left:50%;top:0;width:0;height:0;pointer-events:none';
+    sprite.append(topCenter);
+    return {sprite,topCenter};
+  }
+  // Every face is a separate CSS 3D plane; face width controls whether the
+  // label is vertical (the narrow 30-unit side faces).
   const makeFace=(name,width,height,color,x,y,z,rotation)=>{
     const el=document.createElement('div');
-    el.className='face';el.textContent=name;
+    el.className='face';
+    const label=document.createElement('span');label.textContent=name;
+    if(width<45)label.className='vertical-label';
+    el.append(label);
     el.style.width=width+'px';el.style.height=height+'px';
     el.style.left=-width/2+'px';el.style.top=-height/2+'px';
     el.style.background=color;
     el.style.transform=`translate3d(${x}px,${y}px,${z}px) ${rotation}`;
     world.append(el);
   };
-  const p=prismPosition;
-  makeFace('FRONT',W,H,'#a1c879',p.x,-H/2,p.z+D/2,'rotateY(0deg)');
-  makeFace('BACK',W,H,'#7486aa',p.x,-H/2,p.z-D/2,'rotateY(180deg)');
-  makeFace('LEFT',D,H,'#5d96b6',p.x-W/2,-H/2,p.z,'rotateY(-90deg)');
-  makeFace('RIGHT',D,H,'#e2a25e',p.x+W/2,-H/2,p.z,'rotateY(90deg)');
-  makeFace('TOP',W,D,'#f0d596',p.x,-H,p.z,'rotateX(90deg)');
-  makeFace('BOTTOM',W,D,'#755a80',p.x,0,p.z,'rotateX(-90deg)');
-  for(const position of [spritePosition,prismPosition]){
-    const foot=document.createElement('div');foot.className='foot';
-    foot.style.transform=`translate3d(${position.x}px,-2px,${position.z}px) rotateX(90deg)`;
-    world.append(foot);
+  function createPrism(){
+    const p=prismPosition, prismW=75, prismH=140, prismD=30;
+    makeFace('FRONT',prismW,prismH,'#a1c879',p.x,-prismH/2,p.z+prismD/2,'rotateY(0deg)');
+    makeFace('BACK',prismW,prismH,'#7486aa',p.x,-prismH/2,p.z-prismD/2,'rotateY(180deg)');
+    makeFace('LEFT',prismD,prismH,'#5d96b6',p.x-prismW/2,-prismH/2,p.z,'rotateY(-90deg)');
+    makeFace('RIGHT',prismD,prismH,'#e2a25e',p.x+prismW/2,-prismH/2,p.z,'rotateY(90deg)');
+    makeFace('TOP',prismW,prismD,'#f0d596',p.x,-prismH,p.z,'rotateX(90deg)');
+    makeFace('BOTTOM',prismW,prismD,'#755a80',p.x,0,p.z,'rotateX(-90deg)');
   }
+  function createGroundMarkers(){
+    for(const position of [spritePosition,prismPosition]){
+      const foot=document.createElement('div');foot.className='foot';
+      foot.style.transform=`translate3d(${position.x}px,-2px,${position.z}px) rotateX(90deg)`;
+      world.append(foot);
+    }
+  }
+  const {sprite,topCenter}=createSprite();
+  createPrism();
+  createGroundMarkers();
+  // Convert world coordinates to camera-space lateral, vertical, and depth
+  // coordinates. Camera/world Y is positive downward; visible depth is > 0.
   function cameraSpace(x,y,z){
     const dx=x-camera.x,dy=y-camera.y,dz=z-camera.z;
     const yaw=camera.yaw*RAD,pitch=camera.pitch*RAD;
@@ -213,14 +223,17 @@
     const forward=-sy*dx+cy*dz;
     return {x:cy*dx+sy*dz,y:cp*dy+sp*forward,depth:sp*dy-cp*forward};
   }
+  // Project a world-space point to viewport pixels; reject points behind
+  // the camera or too close to its projection plane.
   function projectWorld(x,y,z){
     const v=cameraSpace(x,y,z);
     if(v.depth<=0.01)return null;
     return {x:innerWidth/2+F*v.x/v.depth,y:innerHeight/2+F*v.y/v.depth,depth:v.depth};
   }
-  // Perspective mapping local sprite XY (origin at the foot) to homogeneous
-  // CAMERA projection coordinates. The CSS and the analytical projection use
-  // the same pivot, axis vectors, tilt and inverse cosine height scale.
+  // Build a 3×3 homogeneous perspective map using the sprite's ground anchor
+  // and a yawed, tilted pair of local X/Y basis vectors. Camera-relative X/Y
+  // occupy the first two rows; depth in the third supplies perspective divide.
+  // The canvas has a separately calibrated CSS offset and transform origin.
   function physicalMatrix(facing,tilt){
     const cx=spritePosition.x,cy=spritePosition.y,cz=spritePosition.z;
     const s=Math.sin(facing),c=Math.cos(facing),t=Math.tan(tilt);
@@ -233,16 +246,20 @@
             [F*vx.y,F*vy.y,F*P.y],
             [vx.depth,vy.depth,P.depth]];
   }
+  // Apply a 3×3 projective transform to local XY and divide by homogeneous w.
+  // Preserve w so callers can reject points behind the projection plane.
   function transform3(M,x,y){
     const w=M[2][0]*x+M[2][1]*y+M[2][2];
     return {x:(M[0][0]*x+M[0][1]*y+M[0][2])/w,
       y:(M[1][0]*x+M[1][1]*y+M[1][2])/w,w};
   }
+  // Compose projective mappings in application order: B first, then A.
   function multiply3(A,B){
     return Array.from({length:3},(_,r)=>Array.from({length:3},(_,c)=>
       A[r][0]*B[0][c]+A[r][1]*B[1][c]+A[r][2]*B[2][c]));
   }
-  // General 3x3 inverse. All local warping remains in the element's XY plane.
+  // Invert a projective 3×3 matrix. Return null for singular or nonfinite
+  // determinants rather than applying an unstable correction.
   function invert3(a){
     const det=a[0][0]*(a[1][1]*a[2][2]-a[1][2]*a[2][1])
       -a[0][1]*(a[1][0]*a[2][2]-a[1][2]*a[2][0])
@@ -255,9 +272,12 @@
       [(a[1][0]*a[2][1]-a[1][1]*a[2][0])*inv,(a[0][1]*a[2][0]-a[0][0]*a[2][1])*inv,(a[0][0]*a[1][1]-a[0][1]*a[1][0])*inv]
     ];
   }
-  // Existing sector-relative orientation and axis normalization.
-  // The transverse measurement below does not affect this correction.
-  function unifiedCorrection(physical,theta,tilt,desired,strength,dx,dz){
+  // Correction pipeline: blend diagonal facing -> derive target dimensions ->
+  // fit projected axes -> align the top -> recover local XY homography.
+  // Transverse movement diagnostics are independent of this pipeline.
+  // Ease the desired facing from the current diagonal toward an adjacent
+  // diagonal near quarter boundaries. mix is capped at 0.5.
+  function blendedFacing(theta,strength){
     const quarter=Math.floor(theta/(Math.PI/2));
     const phase=theta/(Math.PI/2)-quarter;
     const center=(quarter+0.5)*Math.PI/2-camera.yaw*RAD;
@@ -269,20 +289,32 @@
     const facingX=(1-mix)*Math.cos(center)+mix*Math.cos(neighbor);
     const facingZ=(1-mix)*Math.sin(center)+mix*Math.sin(neighbor);
     const facing=Math.atan2(facingZ,facingX);
-    let projected=physicalMatrix(facing,tilt);
+    return {facing,mix};
+  }
+  // Projected width uses the full camera-to-sprite 3D distance. Height uses
+  // altitude plus camera-forward displacement and includes reference
+  // shortening and the physical X-tilt contribution. These formulas are
+  // intentionally different; do not substitute one distance for the other.
+  function referenceAxisDimensions(tilt,desired,dx,dz){
     const yaw=camera.yaw*RAD;
     const cy=Math.cos(yaw),sy=Math.sin(yaw);
     const lateral=cy*dx+sy*dz;
     const forward=-sy*dx+cy*dz;
     const altitude=camera.y-spritePosition.y;
-    const widthDistance = Math.hypot(altitude, dx, dz);
+    const widthDistance=Math.hypot(altitude,dx,dz);
     const heightDistance=Math.hypot(altitude,forward);
     if(widthDistance<=0.01||heightDistance<=0.01)return null;
     const pitch=camera.pitch*RAD;
-    const refWidth=F*W/(Math.SQRT2*widthDistance);
+    const refWidth=F*W/widthDistance;
     const refHeight=F*H*desired*Math.abs(
       Math.cos(pitch)+Math.sin(pitch)*Math.tan(tilt)/Math.SQRT2
     )/heightDistance;
+    return {refWidth,refHeight};
+  }
+  // Solve for the local X/Y scales needed to reach the projected reference
+  // dimensions. X accounts for perspective change across the horizontal
+  // axis; Y depends on the vertical depth term. Invalid fits return null.
+  function fitProjectedAxes(projected,refWidth,refHeight){
     const depth=projected[2][2];
     if(depth<=0.01)return null;
     const xBasis=Math.hypot(
@@ -301,15 +333,22 @@
     const heightDenominator=H*(yBasis+refHeight*depth*projected[2][1]);
     const fitY=refHeight*depth*depth/heightDenominator;
     if(!Number.isFinite(fitX+fitY)||fitX<=0||fitY<=0)return null;
-    projected=multiply3(projected,[[fitX,0,0],[0,fitY,0],[0,0,1]]);
-    // Keep the visible top-middle on the projected upright reference line.
-    // Adjust the top-center only: the foot and fitted axis dimensions remain fixed.
+    return {fitX,fitY};
+  }
+  function alignProjectedTop(projected,desired){
+    // Keep the projected top-middle aligned to the upright reference at the
+    // same anchor. Modify only the projected Y-basis column; the foot remains
+    // fixed. (This is an alignment constraint, not an extra camera movement.)
     const projectedTop=transform3(projected,0,-H);
     const uprightTop=projectWorld(spritePosition.x,-H*desired,spritePosition.z);
-    if(!uprightTop||projectedTop.w<=0)return null;
+    if(!uprightTop||projectedTop.w<=0)return false;
     projected[0][1]+=(projectedTop.x-(uprightTop.x-innerWidth/2))*projectedTop.w/H;
     projected[1][1]+=(projectedTop.y-(uprightTop.y-innerHeight/2))*projectedTop.w/H;
-    if(projectedCorners(projected).some(p=>!p))return null;
+    return true;
+  }
+  // Solve physical × local = desired projection, normalize homogeneous
+  // scale, then reject corrections with invalid/inverted corner depths.
+  function recoverLocalCorrection(physical,projected){
     const inverse=invert3(physical);
     if(!inverse)return null;
     const local=multiply3(inverse,projected);
@@ -319,10 +358,29 @@
     const pts=corners().map(([x,y])=>transform3(local,x,y));
     if(pts.some(p=>!Number.isFinite(p.x+p.y)||p.w<=0))return null;
     const localYs=pts.map(p=>p.y);
-    return {local,beta:mix,fitX,fitY,
-      extentY:Math.max(...localYs)-Math.min(...localYs),
-      maxX:refWidth,maxY:refHeight};
+    return {local,extentY:Math.max(...localYs)-Math.min(...localYs)};
   }
+  // The full correction is optional: return null for degenerate geometry so
+  // the caller can keep the uncorrected physical plane instead.
+  function unifiedCorrection(physical,theta,tilt,desired,strength,dx,dz){
+    const {facing,mix}=blendedFacing(theta,strength);
+    let projected=physicalMatrix(facing,tilt);
+    const dimensions=referenceAxisDimensions(tilt,desired,dx,dz);
+    if(!dimensions)return null;
+    const {refWidth,refHeight}=dimensions;
+    const fit=fitProjectedAxes(projected,refWidth,refHeight);
+    if(!fit)return null;
+    const {fitX,fitY}=fit;
+    projected=multiply3(projected,[[fitX,0,0],[0,fitY,0],[0,0,1]]);
+    if(!alignProjectedTop(projected,desired))return null;
+    if(projectedCorners(projected).some(p=>!p))return null;
+    const recovered=recoverLocalCorrection(physical,projected);
+    if(!recovered)return null;
+    return {local:recovered.local,beta:mix,fitX,fitY,
+      extentY:recovered.extentY,maxX:refWidth,maxY:refHeight};
+  }
+  // Embed an XY homography in CSS matrix3d's column-major representation;
+  // local Z is unchanged and the final 4×4 component stays 1.
   function matrix3dXY(local){
     const a=local[0],b=local[1],c=local[2];
     return `matrix3d(${a[0]},${b[0]},0,${c[0]},`+
@@ -330,9 +388,8 @@
   }
   function identity3(){return [[1,0,0],[0,1,0],[0,0,1]]}
   function corners(){return [[-W/2,-H],[W/2,-H],[W/2,0],[-W/2,0]]}
-  function setPolygon(id,points){
-    $(id).setAttribute('points',points.every(Boolean)?points.map(p=>`${p.x},${p.y}`).join(' '):'');
-  }
+  // Project the four corners of the logical W×H sprite plane to viewport
+  // pixels, discarding nonfinite or behind-camera corners.
   function projectedCorners(matrix){
     return corners().map(([x,y])=>{
       const p=transform3(matrix,x,y);
@@ -340,88 +397,117 @@
       return {x:innerWidth/2+p.x,y:innerHeight/2+p.y};
     });
   }
-  function render(){
+  // Render stages: camera/world placement -> sprite frame -> physical pose ->
+  // local correction -> CSS transform -> diagnostics -> UI readouts.
+  function placeWorld(){
     world.style.transform=`rotateX(${-camera.pitch}deg) rotateY(${camera.yaw}deg) `+
       `translate3d(${-camera.x}px,${-camera.y}px,${-camera.z}px)`;
     const cx=Math.round(camera.x/250)*250,cz=Math.round(camera.z/250)*250;
     ground.style.transform=`translate3d(${cx}px,0px,${cz}px) rotateX(90deg)`;
+  }
+  function viewingDirection(){
     const dx=camera.x-spritePosition.x,dz=camera.z-spritePosition.z;
     const bearing=Math.atan2(dx,dz),yaw=camera.yaw*RAD;
-    const continuous=bearing;
+    return {dx,dz,bearing,yaw};
+  }
+  function spriteFrameForBearing(bearing){
     // Eight viewing sectors from five source directions; mirror the other three.
     const normalizedBearing=(((bearing+Math.PI)%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
     const sector=Math.round(normalizedBearing/(Math.PI/4))%8;
     const direction=sector<=4?sector:8-sector;
     const mirror=sector>4;
+    return {direction,mirror};
+  }
+  function selectSpriteFrame(bearing){
+    const {direction,mirror}=spriteFrameForBearing(bearing);
     if(direction!==selectedDirection||mirror!==selectedMirror){
       selectedDirection=direction;selectedMirror=mirror;
       drawSprite();
     }
-    const overhead=modeEl.checked;
+  }
+  // Choose a screen-relative diagonal physical facing (four-way), then
+  // construct the physically yawed and pitched sprite plane. Manual XY shear
+  // is a separate, subsequent operation in computeLocalCorrection().
+  function physicalPose(view){
     const maxTilt=Number(tiltEl.value)*RAD;
-    const tilt=overhead?Math.min(maxTilt,Math.max(0,camera.pitch*RAD)*0.8):0;
+    const tilt=Math.min(maxTilt,Math.max(0,camera.pitch*RAD)*0.8);
     const pivot=projectWorld(spritePosition.x,0,spritePosition.z);
-    // A projected ground point directly beneath the camera gives us the
-    // origin for SCREEN-RELATIVE four-way selection. Thus changing pitch
-    // doesn't silently reinterpret a sprite's screen quadrant as a world
-    // quadrant. All four orientations are diagonal (+45 degrees offset).
+    // Compare the projected sprite foot to the ground point below the
+    // camera, keeping the four-way sector selection screen-relative as pitch
+    // changes. Each physical sector faces a diagonal (+45° offset).
     const cameraGround=projectWorld(camera.x,0,camera.z);
     const screenBearing=pivot&&cameraGround&&
       Math.hypot(cameraGround.x-pivot.x,cameraGround.y-pivot.y)>0.01
       ?Math.atan2(cameraGround.x-pivot.x,cameraGround.y-pivot.y)
-      :bearing+yaw;
+      :view.bearing+view.yaw;
     const quarter=Math.floor(screenBearing/(Math.PI/2));
-    const diagonal=(quarter+0.5)*Math.PI/2-yaw;
-    const actualFacing=overhead?diagonal:continuous;
+    const diagonal=(quarter+0.5)*Math.PI/2-view.yaw;
+    const actualFacing=diagonal;
     const physical=physicalMatrix(actualFacing,tilt);
+    return {tilt,screenBearing,quarter,actualFacing,physical};
+  }
+  // Convert slider values to correction parameters. Reference shortening
+  // reduces desired height progressively as positive pitch approaches 90°.
+  function correctionControls(){
     const shortening=Number(shortenEl.value)/100;
     const desired=1-shortening*(1-Math.cos(Math.max(0,camera.pitch*RAD)));
-    const worldHead=projectWorld(spritePosition.x,-H*desired,spritePosition.z);
     const strength=Number(warpEl.value)/100;
+    return {desired,strength};
+  }
+  // Compute the homography and diagnostics, falling back to physical-only
+  // pose if the projection becomes degenerate. Optional manual shear composes
+  // after the automatic fit, never as part of the geometry solver itself.
+  function computeLocalCorrection(pose,view){
+    const {desired,strength}=correctionControls();
     let local=identity3(),axisState='physical only',localHeight=H;
     let beta=0,fitX=1,fitY=1,maxX=0,maxY=0;
-    if(overhead){
-      const corrected=unifiedCorrection(physical,screenBearing,tilt,desired,strength,dx,dz);
+    {
+      const corrected=unifiedCorrection(pose.physical,pose.screenBearing,pose.tilt,desired,strength,view.dx,view.dz);
       if(corrected){
         local=corrected.local;
         beta=corrected.beta;fitX=corrected.fitX;fitY=corrected.fitY;
         localHeight=corrected.extentY;
         maxX=corrected.maxX;maxY=corrected.maxY;
         axisState='normalized facing + dimensional axes';
-        // Optional experimental override: manual skew is explicitly not part
-        // of the smooth automatic model, and can break its guarantees.
+        // User-controlled extra X shear, applied only when auto-only mode
+        // is unchecked; it does not change the fitted geometric parameters.
         if(!autoShearEl.checked){
           local=multiply3(local,[[1,Number(shearEl.value)/100,0],[0,1,0],[0,0,1]]);
           axisState='geometric model + manual shear';
         }
       }else axisState='degenerate projection - physical only';
-    }else axisState='normal: continuous facing';
-    const physicalTransform=`translate3d(${spritePosition.x}px,0px,${spritePosition.z}px) `+
-      `rotateY(${actualFacing/RAD}deg) rotateX(${tilt/RAD}deg) `+
-      `scale(1,${1/Math.cos(tilt)})`;
-    ghost.style.transform=physicalTransform;
-    // Only the texture coordinates deform. All mapped points remain at z=0.
-    sprite.style.transform=physicalTransform+' '+matrix3dXY(local);
-    ghost.style.display=ghostEl.checked?'':'none';
-    const overlay=overlayEl.checked;
-    $('measure').style.display=overlay?'':'none';
-    const actualFull=multiply3(physical,local);
-    setPolygon('rawOutline',projectedCorners(physical));
-    setPolygon('finalOutline',projectedCorners(actualFull));
-    if(pivot){
-      $('screenFoot').setAttribute('cx',pivot.x);$('screenFoot').setAttribute('cy',pivot.y);
-      const end=transform3(actualFull,0,-H);
-      $('targetCenter').setAttribute('x1',pivot.x);$('targetCenter').setAttribute('y1',pivot.y);
-      $('targetCenter').setAttribute('x2',worldHead?worldHead.x:innerWidth/2+end.x);
-      $('targetCenter').setAttribute('y2',innerHeight/2+end.y);
     }
+    return {local,axisState,localHeight,beta,fitX,fitY,maxX,maxY};
+  }
+  function applySpritePose(pose,correction){
+    const physicalTransform=`translate3d(${spritePosition.x}px,0px,${spritePosition.z}px) `+
+      `rotateY(${pose.actualFacing/RAD}deg) rotateX(${pose.tilt/RAD}deg) `+
+      `scale(1,${1/Math.cos(pose.tilt)})`;
+    // Only the texture coordinates deform. All mapped points remain at z=0.
+    sprite.style.transform=physicalTransform+' '+matrix3dXY(correction.local);
+  }
+  // Analytically measure the projected centerline and its roll from the
+  // combined matrices; read top-center viewport position from the live marker.
+  function measureSprite(pose,correction){
+    const actualFull=multiply3(pose.physical,correction.local);
     const foot=transform3(actualFull,0,0),head=transform3(actualFull,0,-H);
     // The marker inherits the physical 3D and local perspective transforms.
     const anchor=topCenter.getBoundingClientRect();
     const topX=anchor.x,topY=anchor.y;
+    const heightPx=Math.hypot(head.x-foot.x,head.y-foot.y);
+    const roll=Math.atan2(head.x-foot.x,foot.y-head.y)/RAD;
+    return {topX,topY,heightPx,roll};
+  }
+  // Classify the currently held WASD keys in screen-transverse diagnostics;
+  // diagonal motion cannot define a single measurement axis.
+  function movementAxis(){
     const f=Number(keys.has('KeyW'))-Number(keys.has('KeyS'));
     const r=Number(keys.has('KeyD'))-Number(keys.has('KeyA'));
-    const movingAxis=f&&r?'diagonal':f?'vertical':r?'horizontal':null;
+    return f&&r?'diagonal':f?'vertical':r?'horizontal':null;
+  }
+  // Starting movement on a different single axis resets the extrema.
+  // Diagonal motion cancels the session; releasing all keys retains it.
+  function updateMovementSession(movingAxis){
     if(movingAxis==='diagonal'){
       transverseExtrema.axis=null;
     }else if(movingAxis&&movingAxis!==transverseExtrema.axis){
@@ -429,6 +515,30 @@
       transverseExtrema.min=Infinity;
       transverseExtrema.max=-Infinity;
     }
+  }
+  function setTransversePoint(id,value,vertical,topX,topY){
+    $(id).setAttribute('cx',vertical?value:topX);
+    $(id).setAttribute('cy',vertical?topY:value);
+  }
+  // Render the min/max/current markers along the transverse screen axis.
+  // The checkbox controls visibility, not whether extrema are measured.
+  function placeTransverseGuide(vertical,topX,topY,min,max,current){
+    const half=Math.max(70,Math.abs(max-min)+16);
+    const guide=$('transverseGuide');
+    guide.setAttribute('x1',vertical?topX-half:topX);
+    guide.setAttribute('y1',vertical?topY:topY-half);
+    guide.setAttribute('x2',vertical?topX+half:topX);
+    guide.setAttribute('y2',vertical?topY:topY+half);
+    setTransversePoint('transverseMinimum',min,vertical,topX,topY);
+    setTransversePoint('transverseMaximum',max,vertical,topX,topY);
+    setTransversePoint('transverseCurrent',current,vertical,topX,topY);
+    $('transverseOverlay').style.display=extremaEl.checked?'':'none';
+  }
+  // During pure forward/backward motion measure top-center screen X;
+  // during pure strafe measure screen Y. Keep min/max after key release.
+  function updateTransverseGuide(topX,topY){
+    const movingAxis=movementAxis();
+    updateMovementSession(movingAxis);
     let transverseRead='no single-axis session';
     if(transverseExtrema.axis){
       const vertical=transverseExtrema.axis==='vertical';
@@ -438,56 +548,63 @@
         transverseExtrema.max=Math.max(transverseExtrema.max,current);
       }
       const min=transverseExtrema.min,max=transverseExtrema.max;
-      const half=Math.max(70,Math.abs(max-min)+16);
-      const guide=$('transverseGuide');
-      guide.setAttribute('x1',vertical?topX-half:topX);
-      guide.setAttribute('y1',vertical?topY:topY-half);
-      guide.setAttribute('x2',vertical?topX+half:topX);
-      guide.setAttribute('y2',vertical?topY:topY+half);
-      const setPoint=(id,value)=>{
-        $(id).setAttribute('cx',vertical?value:topX);
-        $(id).setAttribute('cy',vertical?topY:value);
-      };
-      setPoint('transverseMinimum',min);
-      setPoint('transverseMaximum',max);
-      setPoint('transverseCurrent',current);
-      $('transverseOverlay').style.display='';
+      placeTransverseGuide(vertical,topX,topY,min,max,current);
       transverseRead=`${vertical?'X':'Y'} ${current.toFixed(1)} px (min ${min.toFixed(1)}, max ${max.toFixed(1)}, drift ${(max-min).toFixed(2)})`;
     }else $('transverseOverlay').style.display='none';
-    const heightPx=Math.hypot(head.x-foot.x,head.y-foot.y);
-    const roll=Math.atan2(head.x-foot.x,foot.y-head.y)/RAD;
+    return transverseRead;
+  }
+  function updateControlReadouts(){
     shearEl.disabled=autoShearEl.checked;
     $('shearRead').textContent=(Number(shearEl.value)/100).toFixed(2);
     $('tiltRead').textContent=tiltEl.value+'°';
     $('shortRead').textContent=shortenEl.value+'%';
     $('speedRead').textContent=speedEl.value;
     $('warpRead').textContent=warpEl.value+'%';
+  }
+  function updateStats(pose,correction,measurement,transverseRead){
+    const {actualFacing,quarter,tilt}=pose;
+    const {axisState,beta,fitX,fitY,maxX,maxY,localHeight}=correction;
+    const {heightPx,roll}=measurement;
     stats.textContent=`Position: ${camera.x.toFixed(0)}, ${(-camera.y).toFixed(0)} high, ${camera.z.toFixed(0)}\n`+
       `Yaw / pitch: ${camera.yaw.toFixed(0)}° / ${camera.pitch.toFixed(0)}°\n`+
-      `Regime: ${overhead?'four-way + local XY':'continuous Y'}\n`+
+      `Regime: four-way + local XY\n`+
       `Physical Y facing: ${(actualFacing/RAD).toFixed(1)}° (diagonal quarter ${quarter})\n`+
       `Physical X tilt: ${(tilt/RAD).toFixed(1)}°\n`+
       `Local XY: ${axisState}\n`+
       `Boundary blend: ${(beta*200).toFixed(0)}%\n`+
-      `Sprite axis lengths: ${maxX.toFixed(1)} x ${maxY.toFixed(1)} px\n`+
+      `Target projected axes: ${maxX.toFixed(1)} x ${maxY.toFixed(1)} px\n`+
       `Axis scales: ${(fitX*100).toFixed(0)}% / ${(fitY*100).toFixed(0)}%\n`+
       `Projected centerline: ${heightPx.toFixed(1)} px; angle ${roll.toFixed(1)}°\n`+
       `Local Y extent: ${localHeight.toFixed(1)} / ${H} units\n`+
       `Top transverse: ${transverseRead}\n`+
       `Mouse: ${document.pointerLockElement===viewport?'locked':'unlocked'}`;
   }
-  document.querySelectorAll('[data-preset]').forEach(button=>{
-    button.addEventListener('click',()=>{Object.assign(camera,presets[button.dataset.preset]);transverseExtrema.axis=null;button.blur()});
-  });
-  viewport.addEventListener('click',()=>{
-    if(document.pointerLockElement!==viewport)viewport.requestPointerLock();
-  });
-  document.addEventListener('mousemove',event=>{
+  function render(){
+    placeWorld();
+    const view=viewingDirection();
+    selectSpriteFrame(view.bearing);
+    const pose=physicalPose(view);
+    const correction=computeLocalCorrection(pose,view);
+    applySpritePose(pose,correction);
+    const measurement=measureSprite(pose,correction);
+    const transverseRead=updateTransverseGuide(measurement.topX,measurement.topY);
+    updateControlReadouts();
+    updateStats(pose,correction,measurement,transverseRead);
+  }
+  // Input event routing -> camera controls -> frame stepping.
+  function usePreset(button){
+    Object.assign(camera,presets[button.dataset.preset]);
+    transverseExtrema.axis=null;
+    button.blur();
+  }
+  function handlePointerLook(event){
     if(document.pointerLockElement!==viewport)return;
     camera.yaw+=event.movementX*0.12;
     camera.pitch=Math.max(-90,Math.min(90,camera.pitch+event.movementY*0.12));
-  });
-  document.addEventListener('keydown',event=>{
+  }
+  // Navigation keys operate globally even if a control had focus; other
+  // typing is left to the focused control.
+  function handleKeyDown(event){
     if(['INPUT','SELECT','BUTTON'].includes(document.activeElement.tagName)){
       if(/^(Key[WASDR]|Space|ShiftLeft|ShiftRight|ControlLeft|ControlRight|Arrow)/.test(event.code))
         document.activeElement.blur();
@@ -496,21 +613,36 @@
     if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.code))event.preventDefault();
     keys.add(event.code);
     if(event.code==='KeyH'&&!event.repeat)$('panel').hidden=!$('panel').hidden;
+    // Existing behavior: R clears the active guide, but does NOT restore
+    // camera pose: `start` is a string, not a preset object. Kept unchanged.
     if(event.code==='KeyR'&&!event.repeat){Object.assign(camera,start);transverseExtrema.axis=null;}
-  });
-  document.addEventListener('keyup',event=>keys.delete(event.code));
-  document.addEventListener('pointerlockchange',()=>keys.clear());
-  window.addEventListener('blur',()=>keys.clear());
+  }
+  function bindInputEvents(){
+    document.querySelectorAll('[data-preset]').forEach(button=>{
+      button.addEventListener('click',()=>usePreset(button));
+    });
+    viewport.addEventListener('click',()=>{
+      if(document.pointerLockElement!==viewport)viewport.requestPointerLock();
+    });
+    document.addEventListener('mousemove',handlePointerLook);
+    document.addEventListener('keydown',handleKeyDown);
+    document.addEventListener('keyup',event=>keys.delete(event.code));
+    document.addEventListener('pointerlockchange',()=>keys.clear());
+    window.addEventListener('blur',()=>keys.clear());
+  }
+  bindInputEvents();
   let previous=performance.now();
-  function animate(now){
-    const dt=Math.min((now-previous)/1000,0.05);previous=now;
-    const speed=Number(speedEl.value)*(keys.has('ControlLeft')||keys.has('ControlRight')?3:1);
+  function applyKeyboardLook(dt){
     const look=75*dt;
     if(keys.has('ArrowLeft'))camera.yaw-=look;
     if(keys.has('ArrowRight'))camera.yaw+=look;
     if(keys.has('ArrowUp'))camera.pitch-=look;
     if(keys.has('ArrowDown'))camera.pitch+=look;
     camera.pitch=Math.max(-90,Math.min(90,camera.pitch));
+  }
+  // Move relative to camera yaw, with Shift/Space providing vertical input.
+  // Normalize multi-axis movement so diagonal flight keeps the same speed.
+  function applyKeyboardTranslation(speed,dt){
     const f=Number(keys.has('KeyW'))-Number(keys.has('KeyS'));
     const r=Number(keys.has('KeyD'))-Number(keys.has('KeyA'));
     const u=Number(keys.has('ShiftLeft')||keys.has('ShiftRight'))-Number(keys.has('Space'));
@@ -518,9 +650,20 @@
     camera.x+=(Math.sin(y)*f+Math.cos(y)*r)*step;
     camera.z+=(-Math.cos(y)*f+Math.sin(y)*r)*step;
     camera.y+=u*step;
+  }
+  function moveCamera(dt){
+    const speed=Number(speedEl.value)*(keys.has('ControlLeft')||keys.has('ControlRight')?3:1);
+    applyKeyboardLook(dt);
+    applyKeyboardTranslation(speed,dt);
+  }
+  // Cap the per-frame timestep at 50 ms to limit large jumps after a pause.
+  function animate(now){
+    const dt=Math.min((now-previous)/1000,0.05);previous=now;
+    moveCamera(dt);
     render();requestAnimationFrame(animate);
   }
-  window.__labTest={camera,render,modeEl,autoShearEl,topCenter,transverseExtrema};
+  // Diagnostic interface used by regression tests; it is not a UI control.
+  window.__labTest={camera,render,autoShearEl,topCenter,transverseExtrema};
   requestAnimationFrame(animate);
 })();
 </script>
