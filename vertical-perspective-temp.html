@@ -646,8 +646,33 @@
     moveCamera(dt);
     render();requestAnimationFrame(animate);
   }
+  // Return the current camera pose as a JSON-compatible object for debugging/repro.
+  function snapshotCameraJSON(){
+    return {
+      position:{x:camera.x,y:camera.y,z:camera.z},
+      orientationDegrees:{yaw:camera.yaw,pitch:camera.pitch}
+    };
+  }
+  // Apply a camera pose previously returned by snapshotCameraJSON().
+  function applyCameraSnapshot(snapshot){
+    const data=typeof snapshot==='string'?JSON.parse(snapshot):snapshot;
+    const position=data?.position;
+    const orientation=data?.orientationDegrees;
+    const values=[position?.x,position?.y,position?.z,
+      orientation?.yaw,orientation?.pitch];
+    if(!values.every(Number.isFinite))
+      throw new TypeError('Invalid camera snapshot: expected finite position and orientation values.');
+    Object.assign(camera,{x:position.x,y:position.y,z:position.z,
+      yaw:orientation.yaw,pitch:orientation.pitch});
+    transverseExtrema.axis=null;
+    render();
+    return snapshotCameraJSON();
+  }
   // Expose renderer state for programmatic diagnostics.
-  window.__labTest={camera,render,autoShearEl,topCenter,transverseExtrema};
+  window.snapshotCameraJSON=snapshotCameraJSON;
+  window.applyCameraSnapshot=applyCameraSnapshot;
+  window.__labTest={camera,render,autoShearEl,topCenter,transverseExtrema,
+    snapshotCameraJSON,applyCameraSnapshot};
   requestAnimationFrame(animate);
 })();
 </script>
