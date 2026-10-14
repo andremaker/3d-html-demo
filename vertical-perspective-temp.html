@@ -228,23 +228,15 @@
   function projectWorld(x,y,z){
     const v=cameraSpace(x,y,z);
     if(v.depth<=0.01)return null;
-    return {x:innerWidth/2+F*v.x/v.depth,y:innerHeight/2+F*v.y/v.depth,depth:v.depth};
+    return {x:innerWidth/2+F*v.x/v.depth,y:innerHeight/2+F*v.y/v.depth};
   }
-  // Build a 3×3 homogeneous perspective map using the sprite's ground anchor
-  // and a yawed, tilted pair of local X/Y basis vectors. Camera-relative X/Y
-  // occupy the first two rows; depth in the third supplies perspective divide.
-  // The canvas has a separately calibrated CSS offset and transform origin.
+  // Map the sprite plane's local axes and fixed feet position into a
+  // homogeneous camera projection; rows are screen X, screen Y, and depth.
   function planeProjectionMatrix(facing,tilt){
-    const cx=spritePosition.x,cy=spritePosition.y,cz=spritePosition.z;
-    const s=Math.sin(facing),c=Math.cos(facing),t=Math.tan(tilt);
-    const P=cameraSpace(cx,cy,cz);
-    const side=cameraSpace(cx+c,cy,cz-s);
-    const down=cameraSpace(cx+t*s,cy+1,cz+t*c);
-    const vx={x:side.x-P.x,y:side.y-P.y,depth:side.depth-P.depth};
-    const vy={x:down.x-P.x,y:down.y-P.y,depth:down.depth-P.depth};
-    return [[F*vx.x,F*vy.x,F*P.x],
-            [F*vx.y,F*vy.y,F*P.y],
-            [vx.depth,vy.depth,P.depth]];
+    const {foot,x,y}=projectedAxisBasis(facing,tilt);
+    return [[x[0],y[0],foot[0]],
+            [x[1],y[1],foot[1]],
+            [x[2],y[2],foot[2]]];
   }
   // Apply a 3×3 projective transform to local XY and divide by homogeneous w.
   // Preserve w so callers can reject points behind the projection plane.
@@ -253,10 +245,9 @@
     return {x:(M[0][0]*x+M[0][1]*y+M[0][2])/w,
       y:(M[1][0]*x+M[1][1]*y+M[1][2])/w,w};
   }
-  // Compose projective mappings in application order: B first, then A.
-  function multiply3(A,B){
-    return Array.from({length:3},(_,r)=>Array.from({length:3},(_,c)=>
-      A[r][0]*B[0][c]+A[r][1]*B[1][c]+A[r][2]*B[2][c]));
+  // Apply an additional horizontal shear to the local texture coordinates.
+  function shearLocalX(local,shear){
+    return local.map(row=>[row[0],row[0]*shear+row[1],row[2]]);
   }
   // Invert a projective 3×3 matrix. Return null for singular or nonfinite
   // determinants rather than applying an unstable correction.
@@ -272,11 +263,8 @@
       [(a[1][0]*a[2][1]-a[1][1]*a[2][0])*inv,(a[0][1]*a[2][0]-a[0][0]*a[2][1])*inv,(a[0][0]*a[1][1]-a[0][1]*a[1][0])*inv]
     ];
   }
-  // Correction pipeline: interpolate target plane orientation -> calculate desired
-  // projected dimensions -> fit projected axes -> align the top -> recover the
-  // local XY homography for the continuously screen-facing sprite plane.
-  // The target orientation varies smoothly near boundaries of its 90° sectors.
-  // The interpolation weight is capped at 0.5.
+  // Derive projected axes from viewing geometry and the width, height,
+  // and top-anchor constraints.
   function interpolateTargetOrientation(screenBearing,strength){
     const sectorIndex=Math.floor(screenBearing/(Math.PI/2));
     const sectorFraction=screenBearing/(Math.PI/2)-sectorIndex;
@@ -291,93 +279,100 @@
     const targetFacing=Math.atan2(orientationZ,orientationX);
     return {targetFacing,blendWeight};
   }
-  // Target width uses the full camera-to-sprite 3D distance. Target height
-  // uses altitude and camera-forward displacement, along with user-selected
-  // height shortening and the plane X-tilt. These distance formulas differ
-  // intentionally; substituting one for the other changes the geometry.
-  function targetProjectedDimensions(tilt,desired,dx,dz){
+  // Compute projected width and height constraints. Width uses the full
+  // camera displacement; height uses its forward and altitude components.
+  function projectedSizeConstraints(tilt,desired,dx,dz){
     const yaw=camera.yaw*RAD;
-    const cy=Math.cos(yaw),sy=Math.sin(yaw);
-    const lateral=cy*dx+sy*dz;
+    const sy=Math.sin(yaw),cy=Math.cos(yaw);
     const forward=-sy*dx+cy*dz;
     const altitude=camera.y-spritePosition.y;
     const widthDistance=Math.hypot(altitude,dx,dz);
     const heightDistance=Math.hypot(altitude,forward);
     if(widthDistance<=0.01||heightDistance<=0.01)return null;
     const pitch=camera.pitch*RAD;
-    const targetWidth=F*W/widthDistance;
-    const targetHeight=F*H*desired*Math.abs(
+    const width=F*W/widthDistance;
+    const height=F*H*desired*Math.abs(
       Math.cos(pitch)+Math.sin(pitch)*Math.tan(tilt)/Math.SQRT2
     )/heightDistance;
-    return {targetWidth,targetHeight};
+    return {width,height};
   }
-  // Solve for the local X/Y scales needed to reach the target projected
-  // dimensions. X accounts for perspective change across the horizontal
-  // axis; Y depends on the vertical depth term. Invalid fits return null.
-  function fitProjectedAxes(projected,targetWidth,targetHeight){
-    const depth=projected[2][2];
+  // Derive the sprite's horizontal and vertical projection axes directly
+  // from their world directions and the camera orientation.
+  function projectedAxisBasis(facing,tilt){
+    const foot=cameraSpace(spritePosition.x,spritePosition.y,spritePosition.z);
+    const yaw=camera.yaw*RAD,pitch=camera.pitch*RAD;
+    const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
+    const s=Math.sin(facing),c=Math.cos(facing),t=Math.tan(tilt);
+    const sideForward=-sy*c-cy*s;
+    const downLateral=t*(cy*s+sy*c);
+    const downForward=t*(-sy*s+cy*c);
+    return {
+      foot:[F*foot.x,F*foot.y,foot.depth],
+      x:[F*(cy*c-sy*s),F*sp*sideForward,-cp*sideForward],
+      y:[F*downLateral,F*(cp+sp*downForward),sp-cp*downForward]
+    };
+  }
+  // Solve horizontal and vertical scales using perspective derivatives
+  // at the sprite's ground anchor.
+  function fitAxisScales(basis,width,height){
+    const {foot,x,y}=basis;
+    const depth=foot[2];
     if(depth<=0.01)return null;
-    const xBasis=Math.hypot(
-      projected[0][0]*depth-projected[0][2]*projected[2][0],
-      projected[1][0]*depth-projected[1][2]*projected[2][0]
-    );
-    const yBasis=Math.hypot(
-      projected[0][1]*depth-projected[0][2]*projected[2][1],
-      projected[1][1]*depth-projected[1][2]*projected[2][1]
-    );
+    const xMagnitude=Math.hypot(x[0]*depth-foot[0]*x[2],x[1]*depth-foot[1]*x[2]);
+    const yMagnitude=Math.hypot(y[0]*depth-foot[0]*y[2],y[1]*depth-foot[1]*y[2]);
     const halfWidth=W/2;
-    const b=W*xBasis;
-    const a=targetWidth*Math.pow(halfWidth*projected[2][0],2);
-    const fitX=2*targetWidth*depth*depth/
-      (b+Math.sqrt(b*b+4*a*targetWidth*depth*depth));
-    const heightDenominator=H*(yBasis+targetHeight*depth*projected[2][1]);
-    const fitY=targetHeight*depth*depth/heightDenominator;
+    const b=W*xMagnitude;
+    const a=width*Math.pow(halfWidth*x[2],2);
+    const fitX=2*width*depth*depth/
+      (b+Math.sqrt(b*b+4*a*width*depth*depth));
+    const heightDenominator=H*(yMagnitude+height*depth*y[2]);
+    const fitY=height*depth*depth/heightDenominator;
     if(!Number.isFinite(fitX+fitY)||fitX<=0||fitY<=0)return null;
     return {fitX,fitY};
   }
-  function alignProjectedTop(projected,desired){
-    // Keep the projected top-middle aligned to an upright plane at the
-    // same anchor. Modify only the projected Y-basis column; the foot remains
-    // fixed. (This is an alignment constraint, not an extra camera movement.)
-    const projectedTop=transform3(projected,0,-H);
-    const uprightTop=projectWorld(spritePosition.x,-H*desired,spritePosition.z);
-    if(!uprightTop||projectedTop.w<=0)return false;
-    projected[0][1]+=(projectedTop.x-(uprightTop.x-innerWidth/2))*projectedTop.w/H;
-    projected[1][1]+=(projectedTop.y-(uprightTop.y-innerHeight/2))*projectedTop.w/H;
-    return true;
+  // Preserve the fitted vertical depth while anchoring the projected top
+  // to the corresponding upright point above the sprite's feet.
+  function anchoredVerticalAxis(basis,fitY,desired){
+    const foot=basis.foot;
+    const verticalDepth=basis.y[2]*fitY;
+    const topDepth=foot[2]-H*verticalDepth;
+    const pitch=camera.pitch*RAD;
+    const uprightDepth=foot[2]-H*desired*Math.sin(pitch);
+    if(uprightDepth<=0.01||topDepth<=0)return null;
+    const screenX=foot[0]/uprightDepth;
+    const screenY=(foot[1]-F*H*desired*Math.cos(pitch))/uprightDepth;
+    return [(foot[0]-screenX*topDepth)/H,
+      (foot[1]-screenY*topDepth)/H,verticalDepth];
   }
-  // Solve sprite-plane projection × local = target projection, normalize homogeneous
-  // scale, then reject corrections with invalid/inverted corner depths.
-  function recoverLocalCorrection(planeProjection,projected){
+  // Express each projected axis directly in the sprite plane's local basis.
+  // The foot is shared by both projections, so its local column is (0,0,1).
+  function localTransformFromProjectedAxes(planeProjection,horizontal,vertical){
     const inverse=invert3(planeProjection);
     if(!inverse)return null;
-    const local=multiply3(inverse,projected);
-    const scale=local[2][2];
-    if(!Number.isFinite(scale)||Math.abs(scale)<1e-10)return null;
-    for(let r=0;r<3;r++)for(let c=0;c<3;c++)local[r][c]/=scale;
-    const pts=corners().map(([x,y])=>transform3(local,x,y));
+    const x=inverse.map(row=>row[0]*horizontal[0]+row[1]*horizontal[1]+row[2]*horizontal[2]);
+    const y=inverse.map(row=>row[0]*vertical[0]+row[1]*vertical[1]+row[2]*vertical[2]);
+    const local=[[x[0],y[0],0],[x[1],y[1],0],[x[2],y[2],1]];
+    const pts=corners().map(([u,v])=>transform3(local,u,v));
     if(pts.some(p=>!Number.isFinite(p.x+p.y)||p.w<=0))return null;
     const localYs=pts.map(p=>p.y);
     return {local,extentY:Math.max(...localYs)-Math.min(...localYs)};
   }
-  // Return null for degenerate geometry; the renderer then uses the uncorrected
-  // screen-facing plane as a fallback.
+  // Solve the local texture transform from projected axis derivatives,
+  // dimensional constraints, and the shared ground anchor.
   function computePerspectiveCorrection(planeProjection,screenBearing,tilt,desired,strength,dx,dz){
     const {targetFacing,blendWeight}=interpolateTargetOrientation(screenBearing,strength);
-    let projected=planeProjectionMatrix(targetFacing,tilt);
-    const dimensions=targetProjectedDimensions(tilt,desired,dx,dz);
+    const dimensions=projectedSizeConstraints(tilt,desired,dx,dz);
     if(!dimensions)return null;
-    const {targetWidth,targetHeight}=dimensions;
-    const fit=fitProjectedAxes(projected,targetWidth,targetHeight);
+    const basis=projectedAxisBasis(targetFacing,tilt);
+    const fit=fitAxisScales(basis,dimensions.width,dimensions.height);
     if(!fit)return null;
-    const {fitX,fitY}=fit;
-    projected=multiply3(projected,[[fitX,0,0],[0,fitY,0],[0,0,1]]);
-    if(!alignProjectedTop(projected,desired))return null;
-    if(projectedCorners(projected).some(p=>!p))return null;
-    const recovered=recoverLocalCorrection(planeProjection,projected);
+    const horizontal=basis.x.map(value=>value*fit.fitX);
+    const vertical=anchoredVerticalAxis(basis,fit.fitY,desired);
+    if(!vertical)return null;
+    const recovered=localTransformFromProjectedAxes(planeProjection,horizontal,vertical);
     if(!recovered)return null;
-    return {local:recovered.local,blendWeight,fitX,fitY,
-      extentY:recovered.extentY,maxX:targetWidth,maxY:targetHeight};
+    return {local:recovered.local,blendWeight,fitX:fit.fitX,fitY:fit.fitY,
+      extentY:recovered.extentY,maxX:dimensions.width,maxY:dimensions.height};
   }
   // Embed an XY homography in CSS matrix3d's column-major representation;
   // local Z is unchanged and the final 4×4 component stays 1.
@@ -388,15 +383,6 @@
   }
   function identity3(){return [[1,0,0],[0,1,0],[0,0,1]]}
   function corners(){return [[-W/2,-H],[W/2,-H],[W/2,0],[-W/2,0]]}
-  // Project the four corners of the logical W×H sprite plane to viewport
-  // pixels, discarding nonfinite or behind-camera corners.
-  function projectedCorners(matrix){
-    return corners().map(([x,y])=>{
-      const p=transform3(matrix,x,y);
-      if(p.w<=0.01||!Number.isFinite(p.x+p.y))return null;
-      return {x:innerWidth/2+p.x,y:innerHeight/2+p.y};
-    });
-  }
   // Render stages: camera/world placement -> sprite frame -> sprite plane pose ->
   // local correction -> CSS transform -> diagnostics -> UI readouts.
   function placeWorld(){
@@ -432,8 +418,7 @@
     const maxTilt=Number(tiltEl.value)*RAD;
     const tilt=Math.min(maxTilt,Math.max(0,camera.pitch*RAD)*0.8);
     const pivot=projectWorld(spritePosition.x,0,spritePosition.z);
-    // Keep the correction target's sector blending screen-relative as pitch
-    // changes; this bearing does not control sprite plane rotation.
+    // Measure the camera-ground direction on screen for orientation blending.
     const cameraGround=projectWorld(camera.x,0,camera.z);
     const screenBearing=pivot&&cameraGround&&
       Math.hypot(cameraGround.x-pivot.x,cameraGround.y-pivot.y)>0.01
@@ -458,22 +443,20 @@
     const {desired,strength}=correctionControls();
     let local=identity3(),axisState='uncorrected sprite plane',localHeight=H;
     let blendWeight=0,fitX=1,fitY=1,maxX=0,maxY=0;
-    {
-      const corrected=computePerspectiveCorrection(pose.planeProjection,pose.screenBearing,pose.tilt,desired,strength,view.dx,view.dz);
-      if(corrected){
-        local=corrected.local;
-        blendWeight=corrected.blendWeight;fitX=corrected.fitX;fitY=corrected.fitY;
-        localHeight=corrected.extentY;
-        maxX=corrected.maxX;maxY=corrected.maxY;
-        axisState='target orientation + projected axis fit';
-        // User-controlled extra X shear, applied only when auto-only mode
-        // is unchecked; it does not change the fitted geometric parameters.
-        if(!autoShearEl.checked){
-          local=multiply3(local,[[1,Number(shearEl.value)/100,0],[0,1,0],[0,0,1]]);
-          axisState='geometric model + manual shear';
-        }
-      }else axisState='degenerate projection - uncorrected sprite plane';
-    }
+    const corrected=computePerspectiveCorrection(pose.planeProjection,pose.screenBearing,pose.tilt,desired,strength,view.dx,view.dz);
+    if(corrected){
+      local=corrected.local;
+      blendWeight=corrected.blendWeight;fitX=corrected.fitX;fitY=corrected.fitY;
+      localHeight=corrected.extentY;
+      maxX=corrected.maxX;maxY=corrected.maxY;
+      axisState='target orientation + projected axis fit';
+      // User-controlled extra X shear, applied only when auto-only mode
+      // is unchecked; it does not change the fitted geometric parameters.
+      if(!autoShearEl.checked){
+        local=shearLocalX(local,Number(shearEl.value)/100);
+        axisState='geometric model + manual shear';
+      }
+    }else axisState='degenerate projection - uncorrected sprite plane';
     return {local,axisState,localHeight,blendWeight,fitX,fitY,maxX,maxY};
   }
   function applySpritePose(pose,correction){
@@ -483,11 +466,16 @@
     // Only the texture coordinates deform. All mapped points remain at z=0.
     sprite.style.transform=planeTransform+' '+matrix3dXY(correction.local);
   }
-  // Analytically measure the projected centerline and its roll from the
-  // combined matrices; read top-center viewport position from the live marker.
+  // Project the local vertical axis and foot anchor to measure the sprite's
+  // centerline. The top-center marker supplies the rendered screen position.
   function measureSprite(pose,correction){
-    const finalProjection=multiply3(pose.planeProjection,correction.local);
-    const foot=transform3(finalProjection,0,0),head=transform3(finalProjection,0,-H);
+    const plane=pose.planeProjection,local=correction.local;
+    const vertical=plane.map(row=>
+      row[0]*local[0][1]+row[1]*local[1][1]+row[2]*local[2][1]);
+    const foot=transform3(plane,0,0);
+    const headDepth=vertical[2]*(-H)+plane[2][2];
+    const head={x:(vertical[0]*(-H)+plane[0][2])/headDepth,
+      y:(vertical[1]*(-H)+plane[1][2])/headDepth};
     // The marker inherits the sprite-plane 3D and local perspective transforms.
     const anchor=topCenter.getBoundingClientRect();
     const topX=anchor.x,topY=anchor.y;
@@ -610,8 +598,7 @@
     if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.code))event.preventDefault();
     keys.add(event.code);
     if(event.code==='KeyH'&&!event.repeat)$('panel').hidden=!$('panel').hidden;
-    // Existing behavior: R clears the active guide, but does NOT restore
-    // camera pose: `start` is a string, not a preset object. Kept unchanged.
+    // R clears the transverse measurement session.
     if(event.code==='KeyR'&&!event.repeat){Object.assign(camera,start);transverseExtrema.axis=null;}
   }
   function bindInputEvents(){
@@ -659,7 +646,7 @@
     moveCamera(dt);
     render();requestAnimationFrame(animate);
   }
-  // Diagnostic interface used by regression tests; it is not a UI control.
+  // Expose renderer state for programmatic diagnostics.
   window.__labTest={camera,render,autoShearEl,topCenter,transverseExtrema};
   requestAnimationFrame(animate);
 })();
