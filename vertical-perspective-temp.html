@@ -23,8 +23,10 @@
     background-size:250px 250px,250px 250px,50px 50px,50px 50px}
   .plane {position:absolute;left:-45px;top:-180px;width:90px;height:180px;
     transform-origin:45px 180px;backface-visibility:visible;will-change:transform}
-  #sprite {left:-36.486486px;top:-141.559322px;transform-origin:36.486486px 141.559322px}
-  #sprite canvas {display:block;width:90px;height:180px;image-rendering:pixelated}
+  #sprite {--visual-zero-x:36.486486px;left:calc(0px - var(--visual-zero-x));top:-141.559322px;
+    transform-origin:var(--visual-zero-x) 141.559322px}
+  #sprite canvas {display:block;width:90px;height:180px;image-rendering:pixelated;
+    transform-origin:var(--visual-zero-x) 0}
   .face {position:absolute;transform-origin:center center;backface-visibility:visible;
     display:flex;align-items:center;justify-content:center;text-align:center;
     font-size:11px;font-weight:750;letter-spacing:.03em;color:#18252c;text-shadow:0 1px 0 #ffffff65;
@@ -152,10 +154,7 @@
   function drawZombieTexture(){
     if(zombieImage.complete&&zombieImage.naturalWidth){
       ctx.imageSmoothingEnabled=false;
-      ctx.save();
-      if(selectedMirror){ctx.translate(W,0);ctx.scale(-1,1)}
       ctx.drawImage(zombieImage,selectedDirection*128+50,42,37,59,0,12,90,156);
-      ctx.restore();
     }
   }
   function drawDebugFrame(){
@@ -169,6 +168,8 @@
     if(debugBoxEl.checked)drawDebugBackground();
     drawZombieTexture();
     if(debugBoxEl.checked)drawDebugFrame();
+    // Reflect the artwork around the same visual zero as the parent plane.
+    img.style.transform=selectedMirror?'scaleX(-1)':'none';
   }
   zombieImage.onload=drawSprite;
   debugBoxEl.addEventListener('change',drawSprite);
