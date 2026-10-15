@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Zombie billboard — continuous-facing perspective correction</title>
+<title>Zombie billboard — continuous orientation</title>
 <style>
   :root {font:13px/1.45 system-ui,sans-serif;color-scheme:dark}
   * {box-sizing:border-box}
@@ -81,7 +81,7 @@
 </svg>
 <div id="reticle"></div>
 <section id="panel">
-  <h1>Zombie billboard — continuous-facing perspective correction</h1>
+  <h1>Zombie billboard — continuous orientation</h1>
   <p>Perspective-corrected zombie beside a six-faced reference prism.</p>
   <div class="toggle-row">
     <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="manualShear" checked><span>Auto correction only</span></label></div>
@@ -116,6 +116,8 @@
   const autoShearEl=$('manualShear'), shearEl=$('shear');
   const stats=$('stats'), RAD=Math.PI/180, F=850;
   const W=90,H=180;
+  const IDENTITY_LOCAL=[[1,0,0],[0,1,0],[0,0,1]];
+  const SPRITE_CORNERS=[[-W/2,-H],[W/2,-H],[W/2,0],[-W/2,0]];
   const spritePosition={x:0,y:0,z:0};
   const prismPosition={x:155,y:0,z:0};
   const start="overhead";
@@ -230,14 +232,6 @@
     if(v.depth<=0.01)return null;
     return {x:innerWidth/2+F*v.x/v.depth,y:innerHeight/2+F*v.y/v.depth};
   }
-  // Map the sprite plane's local axes and fixed feet position into a
-  // homogeneous camera projection; rows are screen X, screen Y, and depth.
-  function planeProjectionMatrix(facing,tilt){
-    const {foot,x,y}=projectedAxisBasis(facing,tilt);
-    return [[x[0],y[0],foot[0]],
-            [x[1],y[1],foot[1]],
-            [x[2],y[2],foot[2]]];
-  }
   // Apply a 3×3 projective transform to local XY and divide by homogeneous w.
   // Preserve w so callers can reject points behind the projection plane.
   function transform3(M,x,y){
@@ -249,20 +243,8 @@
   function shearLocalX(local,shear){
     return local.map(row=>[row[0],row[0]*shear+row[1],row[2]]);
   }
-  // Invert a projective 3×3 matrix. Return null for singular or nonfinite
-  // determinants rather than applying an unstable correction.
-  function invert3(a){
-    const det=a[0][0]*(a[1][1]*a[2][2]-a[1][2]*a[2][1])
-      -a[0][1]*(a[1][0]*a[2][2]-a[1][2]*a[2][0])
-      +a[0][2]*(a[1][0]*a[2][1]-a[1][1]*a[2][0]);
-    if(!Number.isFinite(det)||Math.abs(det)<1e-10)return null;
-    const inv=1/det;
-    return [
-      [(a[1][1]*a[2][2]-a[1][2]*a[2][1])*inv,(a[0][2]*a[2][1]-a[0][1]*a[2][2])*inv,(a[0][1]*a[1][2]-a[0][2]*a[1][1])*inv],
-      [(a[1][2]*a[2][0]-a[1][0]*a[2][2])*inv,(a[0][0]*a[2][2]-a[0][2]*a[2][0])*inv,(a[0][2]*a[1][0]-a[0][0]*a[1][2])*inv],
-      [(a[1][0]*a[2][1]-a[1][1]*a[2][0])*inv,(a[0][1]*a[2][0]-a[0][0]*a[2][1])*inv,(a[0][0]*a[1][1]-a[0][1]*a[1][0])*inv]
-    ];
-  }
+  function dot3(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]}
+  function cross3(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]}
   // Derive projected axes from viewing geometry and the width, height,
   // and top-anchor constraints.
   function interpolateTargetOrientation(screenBearing,strength){
@@ -279,8 +261,8 @@
     const targetFacing=Math.atan2(orientationZ,orientationX);
     return {targetFacing,blendWeight};
   }
-  // Compute projected width and height constraints. Width uses the full
-  // camera displacement; height uses its forward and altitude components.
+  // Compute projected size per source unit. Width uses the full camera
+  // displacement; height uses its forward and altitude components.
   function projectedSizeConstraints(tilt,desired,dx,dz){
     const yaw=camera.yaw*RAD;
     const sy=Math.sin(yaw),cy=Math.cos(yaw);
@@ -290,48 +272,48 @@
     const heightDistance=Math.hypot(altitude,forward);
     if(widthDistance<=0.01||heightDistance<=0.01)return null;
     const pitch=camera.pitch*RAD;
-    const width=F*W/widthDistance;
-    const height=F*H*desired*Math.abs(
+    const widthRate=F/widthDistance;
+    const heightRate=F*desired*Math.abs(
       Math.cos(pitch)+Math.sin(pitch)*Math.tan(tilt)/Math.SQRT2
     )/heightDistance;
-    return {width,height};
+    return {widthRate,heightRate};
   }
-  // Derive the sprite's horizontal and vertical projection axes directly
-  // from their world directions and the camera orientation.
-  function projectedAxisBasis(facing,tilt){
-    const foot=cameraSpace(spritePosition.x,spritePosition.y,spritePosition.z);
-    const yaw=camera.yaw*RAD,pitch=camera.pitch*RAD;
-    const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
-    const s=Math.sin(facing),c=Math.cos(facing),t=Math.tan(tilt);
-    const sideForward=-sy*c-cy*s;
-    const downLateral=t*(cy*s+sy*c);
-    const downForward=t*(-sy*s+cy*c);
+  // Camera yaw and plane facing combine into one angle for both projected
+  // axes. The foot column is shared as [F*x,F*y,depth].
+  function projectedAxisBasis(facing,tilt,foot){
+    const angle=camera.yaw*RAD+facing,pitch=camera.pitch*RAD;
+    const sinAngle=Math.sin(angle),cosAngle=Math.cos(angle);
+    const cp=Math.cos(pitch),sp=Math.sin(pitch),t=Math.tan(tilt);
     return {
-      foot:[F*foot.x,F*foot.y,foot.depth],
-      x:[F*(cy*c-sy*s),F*sp*sideForward,-cp*sideForward],
-      y:[F*downLateral,F*(cp+sp*downForward),sp-cp*downForward]
+      foot,
+      x:[F*cosAngle,-F*sp*sinAngle,cp*sinAngle],
+      y:[F*t*sinAngle,F*(cp+sp*t*cosAngle),sp-cp*t*cosAngle]
     };
   }
   // Solve horizontal and vertical scales using perspective derivatives
   // at the sprite's ground anchor.
-  function fitAxisScales(basis,width,height){
+  function fitAxisScales(basis,sizeConstraints){
     const {foot,x,y}=basis;
+    const {widthRate,heightRate}=sizeConstraints;
     const depth=foot[2];
     if(depth<=0.01)return null;
     const xMagnitude=Math.hypot(x[0]*depth-foot[0]*x[2],x[1]*depth-foot[1]*x[2]);
     const yMagnitude=Math.hypot(y[0]*depth-foot[0]*y[2],y[1]*depth-foot[1]*y[2]);
-    const halfWidth=W/2;
-    const b=W*xMagnitude;
-    const a=width*Math.pow(halfWidth*x[2],2);
-    const fitX=2*width*depth*depth/
-      (b+Math.sqrt(b*b+4*a*width*depth*depth));
-    const heightDenominator=H*(yMagnitude+height*depth*y[2]);
-    const fitY=height*depth*depth/heightDenominator;
+    // With mX=xMagnitude and d=depth, substituting targetWidth=W*widthRate
+    // into the endpoint-width quadratic gives
+    // fitX=2*widthRate*d²/(mX+hypot(mX,widthRate*W*d*x[2])).
+    // Substituting targetHeight=H*heightRate into the anchored-height equation
+    // gives fitY=heightRate*d²/(yMagnitude+H*heightRate*d*y[2]).
+    const horizontalSpan=widthRate*W*depth*x[2];
+    const fitX=2*widthRate*depth*depth/
+      (xMagnitude+Math.hypot(xMagnitude,horizontalSpan));
+    const fitY=heightRate*depth*depth/
+      (yMagnitude+H*heightRate*depth*y[2]);
     if(!Number.isFinite(fitX+fitY)||fitX<=0||fitY<=0)return null;
     return {fitX,fitY};
   }
-  // Preserve the fitted vertical depth while anchoring the projected top
-  // to the corresponding upright point above the sprite's feet.
+  // Keep the fitted top depth, then place that top on the upright top's
+  // screen ray. The expressions below are the direct ray-plane solution.
   function anchoredVerticalAxis(basis,fitY,desired){
     const foot=basis.foot;
     const verticalDepth=basis.y[2]*fitY;
@@ -339,50 +321,59 @@
     const pitch=camera.pitch*RAD;
     const uprightDepth=foot[2]-H*desired*Math.sin(pitch);
     if(uprightDepth<=0.01||topDepth<=0)return null;
-    const screenX=foot[0]/uprightDepth;
-    const screenY=(foot[1]-F*H*desired*Math.cos(pitch))/uprightDepth;
-    return [(foot[0]-screenX*topDepth)/H,
-      (foot[1]-screenY*topDepth)/H,verticalDepth];
+    const depthChange=verticalDepth-desired*Math.sin(pitch);
+    return [foot[0]*depthChange/uprightDepth,
+      (foot[1]*depthChange+F*desired*Math.cos(pitch)*topDepth)/uprightDepth,
+      verticalDepth];
   }
-  // Express each projected axis directly in the sprite plane's local basis.
-  // The foot is shared by both projections, so its local column is (0,0,1).
-  function localTransformFromProjectedAxes(planeProjection,horizontal,vertical){
-    const inverse=invert3(planeProjection);
-    if(!inverse)return null;
-    const x=inverse.map(row=>row[0]*horizontal[0]+row[1]*horizontal[1]+row[2]*horizontal[2]);
-    const y=inverse.map(row=>row[0]*vertical[0]+row[1]*vertical[1]+row[2]*vertical[2]);
+  // Express screen-projected axes in the known plane basis without building
+  // a general inverse. The foot column stays fixed at local (0,0).
+  function localTransformFromProjectedAxes(planeBasis,horizontal,vertical){
+    const {x:planeX,y:planeY,foot}=planeBasis;
+    const xCofactor=cross3(planeY,foot);
+    const yCofactor=cross3(foot,planeX);
+    const footCofactor=cross3(planeX,planeY);
+    // These dual-basis vectors recover the three coefficients of each axis.
+    const determinant=dot3(planeX,xCofactor);
+    if(!Number.isFinite(determinant)||Math.abs(determinant)<1e-10)return null;
+    const localCoordinates=axis=>[
+      dot3(axis,xCofactor)/determinant,
+      dot3(axis,yCofactor)/determinant,
+      dot3(axis,footCofactor)/determinant
+    ];
+    const x=localCoordinates(horizontal),y=localCoordinates(vertical);
     const local=[[x[0],y[0],0],[x[1],y[1],0],[x[2],y[2],1]];
-    const pts=corners().map(([u,v])=>transform3(local,u,v));
+    const pts=SPRITE_CORNERS.map(([u,v])=>transform3(local,u,v));
     if(pts.some(p=>!Number.isFinite(p.x+p.y)||p.w<=0))return null;
     const localYs=pts.map(p=>p.y);
     return {local,extentY:Math.max(...localYs)-Math.min(...localYs)};
   }
-  // Solve the local texture transform from projected axis derivatives,
-  // dimensional constraints, and the shared ground anchor.
-  function computePerspectiveCorrection(planeProjection,screenBearing,tilt,desired,strength,dx,dz){
+  // Derive the in-plane mapping from the requested screen axes and fixed foot.
+  function computePerspectiveCorrection(planeBasis,screenBearing,tilt,desired,strength,dx,dz){
     const {targetFacing,blendWeight}=interpolateTargetOrientation(screenBearing,strength);
-    const dimensions=projectedSizeConstraints(tilt,desired,dx,dz);
-    if(!dimensions)return null;
-    const basis=projectedAxisBasis(targetFacing,tilt);
-    const fit=fitAxisScales(basis,dimensions.width,dimensions.height);
+    const sizeConstraints=projectedSizeConstraints(tilt,desired,dx,dz);
+    if(!sizeConstraints)return null;
+    const targetBasis=projectedAxisBasis(targetFacing,tilt,planeBasis.foot);
+    const fit=fitAxisScales(targetBasis,sizeConstraints);
     if(!fit)return null;
-    const horizontal=basis.x.map(value=>value*fit.fitX);
-    const vertical=anchoredVerticalAxis(basis,fit.fitY,desired);
+    const horizontal=targetBasis.x.map(value=>value*fit.fitX);
+    const vertical=anchoredVerticalAxis(targetBasis,fit.fitY,desired);
     if(!vertical)return null;
-    const recovered=localTransformFromProjectedAxes(planeProjection,horizontal,vertical);
+    const recovered=localTransformFromProjectedAxes(planeBasis,horizontal,vertical);
     if(!recovered)return null;
     return {local:recovered.local,blendWeight,fitX:fit.fitX,fitY:fit.fitY,
-      extentY:recovered.extentY,maxX:dimensions.width,maxY:dimensions.height};
+      extentY:recovered.extentY,maxX:W*sizeConstraints.widthRate,maxY:H*sizeConstraints.heightRate};
   }
-  // Embed an XY homography in CSS matrix3d's column-major representation;
-  // local Z is unchanged and the final 4×4 component stays 1.
-  function matrix3dXY(local){
+  // Express a 2D projective transformation using CSS matrix3d(), since CSS
+  // matrix() only supports affine transformations and cannot represent
+  // position-dependent perspective distortion. The matrix preserves the local
+  // XY plane (z = 0), leaving its 3D orientation to rotateY() and rotateX().
+  function css2dPlaneMatrix3d(local){
     const a=local[0],b=local[1],c=local[2];
     return `matrix3d(${a[0]},${b[0]},0,${c[0]},`+
       `${a[1]},${b[1]},0,${c[1]},0,0,1,0,0,0,0,1)`;
   }
-  function identity3(){return [[1,0,0],[0,1,0],[0,0,1]]}
-  function corners(){return [[-W/2,-H],[W/2,-H],[W/2,0],[-W/2,0]]}
+
   // Render stages: camera/world placement -> sprite frame -> sprite plane pose ->
   // local correction -> CSS transform -> diagnostics -> UI readouts.
   function placeWorld(){
@@ -411,9 +402,8 @@
       drawSprite();
     }
   }
-  // Orient the sprite plane continuously toward the camera screen. Compute a
-  // separate screen-space bearing for the target projection interpolation;
-  // that bearing never changes the sprite plane orientation.
+  // Face the camera position in the horizontal plane and incline around X.
+  // The texture is positioned locally to satisfy the desired screen projection.
   function spritePlanePose(view){
     const maxTilt=Number(tiltEl.value)*RAD;
     const tilt=Math.min(maxTilt,Math.max(0,camera.pitch*RAD)*0.8);
@@ -424,9 +414,11 @@
       Math.hypot(cameraGround.x-pivot.x,cameraGround.y-pivot.y)>0.01
       ?Math.atan2(cameraGround.x-pivot.x,cameraGround.y-pivot.y)
       :view.bearing+view.yaw;
-    const screenFacingYaw=-view.yaw;
-    const planeProjection=planeProjectionMatrix(screenFacingYaw,tilt);
-    return {tilt,screenBearing,screenFacingYaw,planeProjection};
+    const facingYaw=view.bearing;
+    const footCamera=cameraSpace(spritePosition.x,spritePosition.y,spritePosition.z);
+    const foot=[F*footCamera.x,F*footCamera.y,footCamera.depth];
+    const planeBasis=projectedAxisBasis(facingYaw,tilt,foot);
+    return {tilt,screenBearing,facingYaw,planeBasis};
   }
   // Convert slider values to correction parameters. Projected height shortening
   // reduces desired height progressively as positive pitch approaches 90°.
@@ -436,14 +428,13 @@
     const strength=Number(warpEl.value)/100;
     return {desired,strength};
   }
-  // Compute the homography and diagnostics, falling back to uncorrected sprite-plane
-  // pose if the projection becomes degenerate. Optional manual shear composes
-  // after the automatic fit, never as part of the geometry solver itself.
+  // Compute local XY image coordinates and diagnostic values. The sprite
+  // retains its plane orientation if the correction cannot be computed.
   function computeLocalCorrection(pose,view){
     const {desired,strength}=correctionControls();
-    let local=identity3(),axisState='uncorrected sprite plane',localHeight=H;
+    let local=IDENTITY_LOCAL,axisState='uncorrected sprite plane',localHeight=H;
     let blendWeight=0,fitX=1,fitY=1,maxX=0,maxY=0;
-    const corrected=computePerspectiveCorrection(pose.planeProjection,pose.screenBearing,pose.tilt,desired,strength,view.dx,view.dz);
+    const corrected=computePerspectiveCorrection(pose.planeBasis,pose.screenBearing,pose.tilt,desired,strength,view.dx,view.dz);
     if(corrected){
       local=corrected.local;
       blendWeight=corrected.blendWeight;fitX=corrected.fitX;fitY=corrected.fitY;
@@ -460,27 +451,24 @@
     return {local,axisState,localHeight,blendWeight,fitX,fitY,maxX,maxY};
   }
   function applySpritePose(pose,correction){
-    const planeTransform=`translate3d(${spritePosition.x}px,0px,${spritePosition.z}px) `+
-      `rotateY(${pose.screenFacingYaw/RAD}deg) rotateX(${pose.tilt/RAD}deg) `+
-      `scale(1,${1/Math.cos(pose.tilt)})`;
-    // Only the texture coordinates deform. All mapped points remain at z=0.
-    sprite.style.transform=planeTransform+' '+matrix3dXY(correction.local);
+    sprite.style.transform=`translate3d(${spritePosition.x}px,0px,${spritePosition.z}px) `+
+      `rotateY(${pose.facingYaw/RAD}deg) rotateX(${pose.tilt/RAD}deg) `+
+      `scale(1,${1/Math.cos(pose.tilt)}) `+css2dPlaneMatrix3d(correction.local);
   }
-  // Project the local vertical axis and foot anchor to measure the sprite's
-  // centerline. The top-center marker supplies the rendered screen position.
+  // Project the sprite centerline and read its displayed top-center marker.
   function measureSprite(pose,correction){
-    const plane=pose.planeProjection,local=correction.local;
-    const vertical=plane.map(row=>
-      row[0]*local[0][1]+row[1]*local[1][1]+row[2]*local[2][1]);
-    const foot=transform3(plane,0,0);
-    const headDepth=vertical[2]*(-H)+plane[2][2];
-    const head={x:(vertical[0]*(-H)+plane[0][2])/headDepth,
-      y:(vertical[1]*(-H)+plane[1][2])/headDepth};
-    // The marker inherits the sprite-plane 3D and local perspective transforms.
+    const plane=pose.planeBasis,local=correction.local,foot=plane.foot;
+    const vertical=plane.x.map((value,index)=>
+      value*local[0][1]+plane.y[index]*local[1][1]+foot[index]*local[2][1]);
+    const headDepth=vertical[2]*(-H)+foot[2];
+    const head={x:(vertical[0]*(-H)+foot[0])/headDepth,
+      y:(vertical[1]*(-H)+foot[1])/headDepth};
+    // The marker follows the same local XY coordinates as the image.
     const anchor=topCenter.getBoundingClientRect();
     const topX=anchor.x,topY=anchor.y;
-    const heightPx=Math.hypot(head.x-foot.x,head.y-foot.y);
-    const roll=Math.atan2(head.x-foot.x,foot.y-head.y)/RAD;
+    const footX=foot[0]/foot[2],footY=foot[1]/foot[2];
+    const heightPx=Math.hypot(head.x-footX,head.y-footY);
+    const roll=Math.atan2(head.x-footX,footY-head.y)/RAD;
     return {topX,topY,heightPx,roll};
   }
   // Classify the currently held WASD keys in screen-transverse diagnostics;
@@ -547,13 +535,13 @@
     $('warpRead').textContent=warpEl.value+'%';
   }
   function updateStats(pose,correction,measurement,transverseRead){
-    const {screenFacingYaw,tilt}=pose;
+    const {facingYaw,tilt}=pose;
     const {axisState,blendWeight,fitX,fitY,maxX,maxY,localHeight}=correction;
     const {heightPx,roll}=measurement;
     stats.textContent=`Position: ${camera.x.toFixed(0)}, ${(-camera.y).toFixed(0)} high, ${camera.z.toFixed(0)}\n`+
       `Yaw / pitch: ${camera.yaw.toFixed(0)}° / ${camera.pitch.toFixed(0)}°\n`+
-      `Plane: continuous screen-facing + local XY correction\n`+
-      `Sprite plane yaw: ${(screenFacingYaw/RAD).toFixed(1)}°\n`+
+      `Plane: continuous facing with X inclination\n`+
+      `Sprite plane yaw: ${(facingYaw/RAD).toFixed(1)}°\n`+
       `Sprite plane tilt: ${(tilt/RAD).toFixed(1)}°\n`+
       `Local XY: ${axisState}\n`+
       `Target orientation blend: ${(blendWeight*200).toFixed(0)}%\n`+
@@ -646,14 +634,14 @@
     moveCamera(dt);
     render();requestAnimationFrame(animate);
   }
-  // Return the current camera pose as a JSON-compatible object for debugging/repro.
+  // Represent the current camera pose as serializable coordinates.
   function snapshotCameraJSON(){
     return {
       position:{x:camera.x,y:camera.y,z:camera.z},
       orientationDegrees:{yaw:camera.yaw,pitch:camera.pitch}
     };
   }
-  // Apply a camera pose previously returned by snapshotCameraJSON().
+  // Restore a camera pose and clear the current movement measurement.
   function applyCameraSnapshot(snapshot){
     const data=typeof snapshot==='string'?JSON.parse(snapshot):snapshot;
     const position=data?.position;
