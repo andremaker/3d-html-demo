@@ -11,11 +11,12 @@
   html,body {margin:0;width:100%;height:100%;overflow:hidden;background:#142333;color:#e8f2ff}
   #viewport {position:fixed;inset:0;overflow:hidden;perspective:850px;perspective-origin:50% 50%;
     background:linear-gradient(#18314b,#6e91a5 68%,#a5b6b5)}
-  #groundLayer {position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
-  #groundCanvas {position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
   #scene {position:absolute;left:50%;top:50%;width:0;height:0;z-index:1;
     transform:translateZ(850px);transform-style:preserve-3d}
   #world {position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d}
+  #groundPlane {position:absolute;left:-1500px;top:-1500px;width:3000px;height:3000px;
+    transform:rotateX(90deg);transform-style:flat;backface-visibility:visible;pointer-events:none}
+  #groundPlane canvas {display:block;width:100%;height:100%}
   .plane {position:absolute;left:-45px;top:-180px;width:90px;height:180px;
     transform-origin:45px 180px;backface-visibility:visible;will-change:transform}
   #sprite {left:-45px;top:-180px;transform-origin:45px 180px}
@@ -72,7 +73,7 @@
 </style>
 </head>
 <body>
-<div id="viewport"><div id="groundLayer"><canvas id="groundCanvas"></canvas></div><div id="scene"><div id="world"></div></div></div>
+<div id="viewport"><div id="scene"><div id="world"><div id="groundPlane"><canvas id="groundCanvas"></canvas></div></div></div></div>
 <svg id="transverseOverlay" aria-label="Head-center transverse position and extrema">
   <line id="transverseGuide" stroke="#f9ed7b" stroke-width="1.5" stroke-dasharray="2 5"/>
   <circle id="transverseMinimum" r="5" fill="#72e4d2" stroke="#173041" stroke-width="1"/>
@@ -110,14 +111,19 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const world=$('world'), groundCanvas=$('groundCanvas'), viewport=$('viewport');
+  const world = $('world');
+  const groundPlane = $('groundPlane');
+  const groundCanvas = $('groundCanvas');
+  const viewport = $('viewport');
   const tiltEl=$('tilt'), shortenEl=$('shortening');
   const speedEl=$('speed'), warpEl=$('warp'), debugBoxEl=$('debugBox'), extremaEl=$('extrema');
   const autoShearEl=$('manualShear'), shearEl=$('shear');
   const stats=$('stats'), RAD=Math.PI/180, F=850;
   const W=90,H=180;
   const GROUND_SINK=5; // Local sprite units sunk below the ground plane.
-  const GROUND_GRID=50,GROUND_MAJOR_GRID=250,GROUND_DRAW_RANGE=5000;
+  const GROUND_PLANE_HALF = groundPlane.offsetWidth / 2;
+  const GROUND_GRID = 50;
+  const GROUND_MAJOR_GRID = 250;
   const SPRITE_CROP={x:50,y:42,width:37,height:59,drawY:12,drawHeight:156};
   const SPRITE_SHEET={width:640,height:129,frameWidth:128};
   // [head-center X, head-center Y] pixel-bound coordinates in each 37×59 crop.
@@ -145,10 +151,9 @@
   img.width=W; img.height=H;
   const ctx=img.getContext('2d');
   const groundCtx=groundCanvas.getContext('2d');
-  let lastGroundKey='';
   const undergroundEl=document.createElement('div');
   undergroundEl.id='undergroundSprite';
-  world.append(undergroundEl);
+  groundPlane.append(undergroundEl);
   const zombieImage=new Image();
   let selectedDirection=0, selectedMirror=false;
   let currentAboveGroundPolygon=null;
@@ -361,110 +366,35 @@
     return [F*point.x+projection.centerX*point.depth,
       F*point.y+projection.centerY*point.depth,point.depth];
   }
-  function clipGroundLine(start,end,projection,width,height){
-    const a=projectedHomogeneous(cameraCoordinates(start,projection),projection);
-    const b=projectedHomogeneous(cameraCoordinates(end,projection),projection);
-    const boundaries=[
-      point=>point[2]-0.01,
-      point=>point[0],
-      point=>width*point[2]-point[0],
-      point=>point[1],
-      point=>height*point[2]-point[1]
-    ];
-    let first=0,last=1;
-    for(const boundary of boundaries){
-      const from=boundary(a),to=boundary(b);
-      if(!Number.isFinite(from+to)||from<0&&to<0)return null;
-      if(from<0||to<0){
-        const crossing=from/(from-to);
-        if(from<0)first=Math.max(first,crossing);
-        else last=Math.min(last,crossing);
+  // Paint the grid onto the actual 3D floor once; the floor then depth-sorts
+  // against the scene while the embedded sprite copy stays on its surface.
+  function drawGround() {
+    const width = groundCanvas.width = groundPlane.offsetWidth;
+    const height = groundCanvas.height = groundPlane.offsetHeight;
+    groundCtx.fillStyle = '#344e52';
+    groundCtx.fillRect(0, 0, width, height);
+    for (const [step, thickness, color] of [
+      [GROUND_MAJOR_GRID, 2, '#142d3660'],
+      [GROUND_GRID, 1, '#adc3ba35']
+    ]) {
+      groundCtx.fillStyle = color;
+      for (let coordinate = 0; coordinate < width; coordinate += step) {
+        groundCtx.fillRect(coordinate, 0, thickness, height);
+        groundCtx.fillRect(0, coordinate, width, thickness);
       }
     }
-    if(first>last)return null;
-    const screenPoint=t=>{
-      const depth=a[2]+(b[2]-a[2])*t;
-      return {x:(a[0]+(b[0]-a[0])*t)/depth,
-        y:(a[1]+(b[1]-a[1])*t)/depth};
-    };
-    return [screenPoint(first),screenPoint(last)];
+    const markerX = GROUND_PLANE_HALF + spritePosition.x;
+    const markerY = GROUND_PLANE_HALF + spritePosition.z;
+    const glow = groundCtx.createRadialGradient(markerX, markerY, 0, markerX, markerY, 12);
+    glow.addColorStop(0, '#fff8c5');
+    glow.addColorStop(0.35, '#fff8c5c9');
+    glow.addColorStop(1, '#fff8c500');
+    groundCtx.fillStyle = glow;
+    groundCtx.beginPath();
+    groundCtx.arc(markerX, markerY, 12, 0, Math.PI * 2);
+    groundCtx.fill();
   }
-  // Draw the grid as a camera-relative backdrop; 3D objects and the redraw
-  // remain in the world scene and can still depth-sort against each other.
-  function drawGround(projection) {
-    const width = innerWidth;
-    const height = innerHeight;
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-    const pixelWidth = Math.round(width * pixelRatio);
-    const pixelHeight = Math.round(height * pixelRatio);
-    const key = [camera.x, camera.y, camera.z, camera.yaw, camera.pitch, width, height, pixelRatio].join('|');
-    if (key === lastGroundKey) { return; }
-    lastGroundKey = key;
-    if (groundCanvas.width !== pixelWidth || groundCanvas.height !== pixelHeight) {
-      groundCanvas.width = pixelWidth;
-      groundCanvas.height = pixelHeight;
-    }
-    groundCtx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    groundCtx.clearRect(0, 0, width, height);
-    const horizonY = height / 2 - F * Math.tan(camera.pitch * RAD);
-    if (horizonY < height) {
-      groundCtx.fillStyle = '#415b59';
-      groundCtx.fillRect(0, Math.max(0, horizonY), width, height - Math.max(0, horizonY));
-      const minorPath = new Path2D();
-      const majorPath = new Path2D();
-      const addLine = (path, start, end) => {
-        const segment = clipGroundLine(start, end, projection, width, height);
-        if (!segment) { return; }
-        path.moveTo(segment[0].x, segment[0].y);
-        path.lineTo(segment[1].x, segment[1].y);
-      };
-      for (const [center, fixedAxis, lineAxis] of [[camera.x, 0, 2], [camera.z, 2, 0]]) {
-        const firstIndex = Math.floor((center - GROUND_DRAW_RANGE) / GROUND_GRID);
-        const lastIndex = Math.ceil((center + GROUND_DRAW_RANGE) / GROUND_GRID);
-        for (let index = firstIndex; index <= lastIndex; index++) {
-          const coordinate = index * GROUND_GRID;
-          const path = index % (GROUND_MAJOR_GRID / GROUND_GRID) === 0 ? majorPath : minorPath;
-          const start = [camera.x, 0, camera.z];
-          const end = [camera.x, 0, camera.z];
-          start[fixedAxis] = coordinate;
-          end[fixedAxis] = coordinate;
-          start[lineAxis] -= GROUND_DRAW_RANGE;
-          end[lineAxis] += GROUND_DRAW_RANGE;
-          addLine(path, start, end);
-        }
-      }
-      const fadeStart = Math.max(0, Math.min(height - 160, horizonY));
-      const gridFades = [
-        [minorPath, '201,230,212', 1, [[0, 0], [0.2, 0.035], [0.6, 0.14], [1, 0.23]]],
-        [majorPath, '21,43,54', 2, [[0, 0], [0.25, 0.12], [0.65, 0.38], [1, 0.5]]]
-      ];
-      groundCtx.save();
-      groundCtx.beginPath();
-      groundCtx.rect(0, Math.max(0, horizonY + 1), width, height);
-      groundCtx.clip();
-      for (const [path, color, lineWidth, stops] of gridFades) {
-        const gradient = groundCtx.createLinearGradient(0, fadeStart, 0, fadeStart + 160);
-        for (const [offset, opacity] of stops) {
-          gradient.addColorStop(offset, `rgba(${color},${opacity})`);
-        }
-        groundCtx.strokeStyle = gradient;
-        groundCtx.lineWidth = lineWidth;
-        groundCtx.stroke(path);
-      }
-      groundCtx.restore();
-    }
-    const marker = projectWorld(spritePosition.x, 0, spritePosition.z);
-    if (marker) {
-      const glow = groundCtx.createRadialGradient(marker.x, marker.y, 0, marker.x, marker.y, 12);
-      glow.addColorStop(0, '#fff8c5');
-      glow.addColorStop(0.35, '#fff8c5c9');
-      glow.addColorStop(1, '#fff8c500');
-      groundCtx.fillStyle = glow;
-      groundCtx.beginPath();
-      groundCtx.arc(marker.x, marker.y, 12, 0, Math.PI * 2);
-      groundCtx.fill();
-    }
-  }
+  drawGround();
   function planeToScreenHomography(origin,basisX,basisY,projection){
     const columns=[basisX,basisY,origin].map((point,index)=>
       projectedHomogeneous(cameraCoordinates(point,projection,index<2),projection));
@@ -479,10 +409,10 @@
     return `matrix3d(${a},${d},0,${g},${b},${e},0,${h},0,0,1,0,${c},${f},0,${i})`;
   }
   function groundProjectionContext(projection){
-    const groundToScreen=planeToScreenHomography(
-      [0,0,0],[1,0,0],[0,0,1],projection);
-    const screenToGround=invertHomography(groundToScreen);
-    return screenToGround?{projection,screenToGround}:null;
+    const groundToScreen = planeToScreenHomography(
+      [-GROUND_PLANE_HALF, 0, -GROUND_PLANE_HALF], [1, 0, 0], [0, 0, 1], projection);
+    const screenToGround = invertHomography(groundToScreen);
+    return screenToGround ? { projection, screenToGround } : null;
   }
   function spriteToGroundHomography(pose,local,groundContext){
     const yaw=pose.facingYaw,tilt=pose.tilt;
@@ -729,8 +659,7 @@
       return;
     }
     undergroundEl.style.clipPath=polygonClipPath(polygon);
-    undergroundEl.style.transform=`translate3d(0,-0.1px,0) rotateX(90deg) `+
-      cssHomographyMatrix3d(homography);
+    undergroundEl.style.transform = cssHomographyMatrix3d(homography);
     undergroundEl.style.display='block';
   }
   // Measure the corrected head center relative to the sprite's ground pivot.
@@ -835,7 +764,6 @@
   function render(){
     placeWorld();
     const projection=cameraProjectionContext();
-    drawGround(projection);
     const groundContext=groundProjectionContext(projection);
     const view=viewingDirection();
     selectSpriteFrame(view.bearing);
