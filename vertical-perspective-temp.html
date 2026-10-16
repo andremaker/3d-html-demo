@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Zombie billboard — continuous orientation</title>
+<title>Zombie sprite — visual anchor reconstruction</title>
 <style>
   :root {font:13px/1.45 system-ui,sans-serif;color-scheme:dark;
     --sprite-zero-x:36.486486px;--sprite-zero-y:141.559322px}
@@ -34,6 +34,11 @@
   .foot {position:absolute;width:12px;height:12px;left:-6px;top:-6px;border-radius:50%;
     background:#fff8c5;box-shadow:0 0 15px #fff8c5;transform:rotateX(90deg)}
   #transverseOverlay {position:fixed;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+  #anchorOverlay {position:fixed;inset:0;width:100%;height:100%;pointer-events:none;
+    overflow:visible;z-index:5}
+  .anchor-label {font:700 13px/1 ui-monospace,monospace;paint-order:stroke;
+    stroke:#0b1927;stroke-width:3px;stroke-linejoin:round}
+  .toggle-button.anchor-guides input:checked + span {background:#087f91;border-color:#55e6f3}
   #reticle {position:fixed;left:50%;top:50%;width:10px;height:10px;pointer-events:none;
     transform:translate(-50%,-50%);border:1px solid #ffffffa6;border-radius:50%}
   #panel {position:fixed;top:14px;left:14px;width:min(352px,calc(100vw - 28px));
@@ -80,20 +85,28 @@
   <circle id="transverseMaximum" r="5" fill="#ff9a76" stroke="#173041" stroke-width="1"/>
   <circle id="transverseCurrent" r="3" fill="#fff"/>
 </svg>
+<svg id="anchorOverlay" aria-label="Screen-space sprite and source-model foot and head anchors">
+  <g id="physicalAnchorGroup" style="display:none" fill="none" stroke="#ffca69">
+    <polygon id="physicalTriangle" stroke-width="2.5" stroke-dasharray="7 5" stroke-linejoin="round"/>
+  </g>
+  <g id="spriteAnchorGroup" style="display:none" fill="none" stroke="#54e8ef">
+    <polygon id="spriteTriangle" stroke-width="2.5" stroke-linejoin="round"/>
+  </g>
+</svg>
 <div id="reticle"></div>
 <section id="panel">
-  <h1>Zombie billboard — continuous orientation</h1>
-  <p>Perspective-corrected zombie beside a six-faced reference prism.</p>
-  <div class="toggle-row">
-    <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="manualShear" checked><span>Auto correction only</span></label></div>
-  </div>
-  <div class="control"><label for="tilt">Max X tilt <output id="tiltRead">23°</output></label><input id="tilt" type="range" min="0" max="70" value="23"></div>
-  <div class="control"><label for="shear">Manual X shear <output id="shearRead">0.00</output></label><input id="shear" type="range" min="-150" max="150" value="0" step="1"></div>
-  <div class="control"><label for="warp">Target orientation blend <output id="warpRead">250%</output></label><input id="warp" type="range" min="0" max="350" value="250" step="5"></div>
-  <div class="control"><label for="shortening">Projected height shortening <output id="shortRead">0%</output></label><input id="shortening" type="range" min="0" max="100" value="0"></div>
+  <h1>Zombie sprite — visual anchor reconstruction</h1>
+  <p>Approximates the sprite's foot and head positions from the source 3D model for more natural angles and movement.</p>
   <div class="toggle-row">
     <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="debugBox"><span>Sprite debug box</span></label></div>
     <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="extrema"><span>Min/max guide</span></label></div>
+  </div>
+  <div class="toggle-row">
+    <div class="toggle-control"><label class="toggle-button anchor-guides"><input type="checkbox" id="showTriangles"><span>Foot/head anchor guides</span></label></div>
+  </div>
+  <div class="toggle-row">
+    <div class="toggle-control"><button id="cameraMode" type="button" aria-pressed="false">View: Reference camera</button></div>
+    <div class="toggle-control"><button id="resetObserver" type="button">Align observer to reference</button></div>
   </div>
   <div class="control"><label for="speed">Flight speed <output id="speedRead">280</output></label><input id="speed" type="range" min="80" max="900" step="20" value="280"></div>
   <div class="presets">
@@ -101,12 +114,12 @@
     <button data-preset="oblique">Oblique</button>
     <button data-preset="overhead">Overhead</button>
     <button data-preset="direct">Directly above</button>
-    <button data-preset="boundary">Blend boundary</button>
+    <button data-preset="boundary">Direction boundary</button>
   </div>
   <div id="stats">Calculating…</div>
 </section>
 <div id="help"><kbd>W A S D</kbd> move · <kbd>Space</kbd>/<kbd>Shift</kbd> altitude
-  <kbd>Mouse</kbd> look · <kbd>Arrows</kbd> look · <kbd>Ctrl</kbd> boost · <kbd>R</kbd> clear guide · <kbd>H</kbd> hide UI · <kbd>Esc</kbd> unlock</div>
+  <kbd>Observer</kbd> button switches viewing camera · <kbd>Mouse</kbd> look · <kbd>Arrows</kbd> look · <kbd>Ctrl</kbd> boost · <kbd>R</kbd> clear guide · <kbd>H</kbd> hide UI · <kbd>Esc</kbd> unlock</div>
 <script>
 (() => {
   'use strict';
@@ -115,9 +128,8 @@
   const groundPlane = $('groundPlane');
   const groundCanvas = $('groundCanvas');
   const viewport = $('viewport');
-  const tiltEl=$('tilt'), shortenEl=$('shortening');
-  const speedEl=$('speed'), warpEl=$('warp'), debugBoxEl=$('debugBox'), extremaEl=$('extrema');
-  const autoShearEl=$('manualShear'), shearEl=$('shear');
+  const speedEl=$('speed'), debugBoxEl=$('debugBox'), extremaEl=$('extrema');
+  const trianglesEl=$('showTriangles');
   const stats=$('stats'), RAD=Math.PI/180, F=850;
   const W=90,H=180;
   const GROUND_SINK=5; // Local sprite units sunk below the ground plane.
@@ -129,7 +141,8 @@
   // [head-center X, head-center Y] pixel-bound coordinates in each 37×59 crop.
   const FRAME_CENTERS=[[15.5,7],[18,7],[16.5,9],[16,10],[13.5,8]];
   const spritePivot={x:36.486486,y:141.559322,headX:0,headY:0};
-  const IDENTITY_LOCAL=[[1,0,0],[0,1,0],[0,0,1]];
+  const PHYSICAL_ANCHORS=[[-W/2,-GROUND_SINK],[W/2,-GROUND_SINK],[0,-H]];
+  let logicalFacingYaw=0;
   const SPRITE_CORNERS=[[-W/2,-H],[W/2,-H],[W/2,0],[-W/2,0]];
   const spritePosition={x:0,y:0,z:0};
   const prismPosition={x:155,y:0,z:0};
@@ -142,6 +155,15 @@
     boundary:{x:74,y:-661,z:74,yaw:0,pitch:79}
   };
   const camera={...presets[start]};
+  const observerCamera={...camera};
+  let observerMode=false;
+  const screenCamera=()=>observerMode?observerCamera:camera;
+  const controlledCamera=screenCamera;
+  function updateCameraButtons(){
+    const button=$('cameraMode');
+    button.textContent=observerMode?'View: Observer camera':'View: Reference camera';
+    button.setAttribute('aria-pressed',String(observerMode));
+  }
   // Extrema belong to the current single-axis WASD movement session.
   const transverseExtrema={axis:null,min:Infinity,max:-Infinity};
   const keys=new Set();
@@ -220,21 +242,21 @@
       topCenter.style.top=`${H+spritePivot.headY-spritePivot.y}px`;
     }
   }
-  // Split the source texture at its corrected crossing with the ground.
-  function spriteGroundClipPolygon(local,submerged){
+  // Split the source texture where its corresponding physical geometry crosses Y=0.
+  function spriteGroundClipPolygon(submerged){
     const mirror=selectedMirror?-1:1;
     const sourceToPlane=[[mirror,0,selectedMirror?spritePivot.x:-spritePivot.x],
       [0,1,-spritePivot.y],[0,0,1]];
-    const sourceToCorrected=multiplyMatrices(local,sourceToPlane);
+    const sourceToWorld=sourceToPlane;
     let polygon=[{x:0,y:0},{x:W,y:0},{x:W,y:H},{x:0,y:H}];
     polygon=clipPolygonHalfPlane(polygon,point=>
-      sourceToCorrected[2][0]*point.x+sourceToCorrected[2][1]*point.y+
-        sourceToCorrected[2][2]);
+      sourceToWorld[2][0]*point.x+sourceToWorld[2][1]*point.y+
+        sourceToWorld[2][2]);
     polygon=clipPolygonHalfPlane(polygon,point=>{
-      const groundDistance=sourceToCorrected[1][0]*point.x+
-        sourceToCorrected[1][1]*point.y+sourceToCorrected[1][2]+
-        GROUND_SINK*(sourceToCorrected[2][0]*point.x+
-          sourceToCorrected[2][1]*point.y+sourceToCorrected[2][2]);
+      const groundDistance=sourceToWorld[1][0]*point.x+
+        sourceToWorld[1][1]*point.y+sourceToWorld[1][2]+
+        GROUND_SINK*(sourceToWorld[2][0]*point.x+
+          sourceToWorld[2][1]*point.y+sourceToWorld[2][2]);
       return submerged?groundDistance:-groundDistance;
     });
     polygon=clipPolygonHalfPlane(polygon,point=>point.y-SPRITE_CROP.drawY);
@@ -242,8 +264,8 @@
       SPRITE_CROP.drawY+SPRITE_CROP.drawHeight-point.y);
     return polygon;
   }
-  function undergroundClipPolygon(local){return spriteGroundClipPolygon(local,true)}
-  function aboveGroundClipPolygon(local){return spriteGroundClipPolygon(local,false)}
+  function undergroundClipPolygon(){return spriteGroundClipPolygon(true)}
+  function aboveGroundClipPolygon(){return spriteGroundClipPolygon(false)}
   function clipPolygonHalfPlane(polygon,signedDistance){
     const clipped=[];
     for(let i=0;i<polygon.length;i++){
@@ -310,8 +332,9 @@
   // Convert world coordinates to camera-space lateral, vertical, and depth
   // coordinates. Camera/world Y is positive downward; visible depth is > 0.
   function cameraSpace(x,y,z){
-    const dx=x-camera.x,dy=y-camera.y,dz=z-camera.z;
-    const yaw=camera.yaw*RAD,pitch=camera.pitch*RAD;
+    const c=screenCamera();
+    const dx=x-c.x,dy=y-c.y,dz=z-c.z;
+    const yaw=c.yaw*RAD,pitch=c.pitch*RAD;
     const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch);
     const forward=-sy*dx+cy*dz;
     return {x:cy*dx+sy*dz,y:cp*dy+sp*forward,depth:sp*dy-cp*forward};
@@ -347,8 +370,9 @@
     return cofactors.map(row=>row.map(value=>value/determinant));
   }
   function cameraProjectionContext(){
-    const yaw=camera.yaw*RAD,pitch=camera.pitch*RAD;
-    return {x:camera.x,y:camera.y,z:camera.z,
+    const c=screenCamera();
+    const yaw=c.yaw*RAD,pitch=c.pitch*RAD;
+    return {x:c.x,y:c.y,z:c.z,
       sinYaw:Math.sin(yaw),cosYaw:Math.cos(yaw),
       sinPitch:Math.sin(pitch),cosPitch:Math.cos(pitch),
       centerX:innerWidth/2,centerY:innerHeight/2};
@@ -414,163 +438,37 @@
     const screenToGround = invertHomography(groundToScreen);
     return screenToGround ? { projection, screenToGround } : null;
   }
-  function spriteToGroundHomography(pose,local,groundContext){
-    const yaw=pose.facingYaw,tilt=pose.tilt;
-    const cosYaw=Math.cos(yaw),sinYaw=Math.sin(yaw),tiltSlope=Math.tan(tilt);
-    const localToScreen=planeToScreenHomography(
-      [spritePosition.x,GROUND_SINK,spritePosition.z],
-      [cosYaw,0,-sinYaw],
-      [sinYaw*tiltSlope,1,cosYaw*tiltSlope],groundContext.projection);
+  function spriteToGroundHomography(pose,groundContext){
     const mirror=selectedMirror?-1:1;
     const sourceToPlane=[[mirror,0,selectedMirror?spritePivot.x:-spritePivot.x],
       [0,1,-spritePivot.y],[0,0,1]];
-    const sourceToScreen=multiplyMatrices(localToScreen,
-      multiplyMatrices(local,sourceToPlane));
+    const sourceToScreen=multiplyMatrices(
+      characterPlaneProjection(pose.horizontalAxis,groundContext.projection),
+      sourceToPlane);
     return multiplyMatrices(groundContext.screenToGround,sourceToScreen);
   }
   function polygonClipPath(polygon){
     return `polygon(${polygon.map(point=>`${point.x}px ${point.y}px`).join(',')})`;
   }
-  // Apply an additional horizontal shear to the local texture coordinates.
-  function shearLocalX(local,shear){
-    return local.map(row=>[row[0],row[0]*shear+row[1],row[2]]);
+  // Project the planar reconstruction of the selected directional artwork.
+  // Frame selection determines the horizontal orientation; the scene camera
+  // determines the remaining view offset within the frame's angular sector.
+  function characterPlaneProjection(horizontalAxis,projection){
+    return planeToScreenHomography(
+      [spritePosition.x,GROUND_SINK,spritePosition.z],
+      [horizontalAxis.x,0,horizontalAxis.z],[0,1,0],projection);
   }
-  function dot3(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]}
-  function cross3(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]]}
-  // Derive projected axes from viewing geometry and the width, height,
-  // and top-anchor constraints.
-  function interpolateTargetOrientation(screenBearing,strength){
-    const sectorIndex=Math.floor(screenBearing/(Math.PI/2));
-    const sectorFraction=screenBearing/(Math.PI/2)-sectorIndex;
-    const sectorOrientation=(sectorIndex+0.5)*Math.PI/2-camera.yaw*RAD;
-    const adjacentOrientation=(sectorIndex+(sectorFraction<0.5?-0.5:1.5))
-      *Math.PI/2-camera.yaw*RAD;
-    const distance=Math.abs(sectorFraction-0.5)*2;
-    const ease=distance*distance*(3-2*distance);
-    const blendWeight=0.5*ease*Math.min(1,Math.max(0,strength/2.5));
-    const orientationX=(1-blendWeight)*Math.cos(sectorOrientation)+blendWeight*Math.cos(adjacentOrientation);
-    const orientationZ=(1-blendWeight)*Math.sin(sectorOrientation)+blendWeight*Math.sin(adjacentOrientation);
-    const targetFacing=Math.atan2(orientationZ,orientationX);
-    return {targetFacing,blendWeight};
+  // The lateral, depth and upright components are carried by one 3D matrix.
+  function css3dCharacterMatrix(horizontalAxis){
+    const {x,z}=horizontalAxis;
+    return `matrix3d(${x},0,${z},0,0,1,0,0,${-z},0,${x},0,0,0,0,1)`;
   }
-  // Compute projected size per source unit. Width uses the full camera
-  // displacement; height uses its forward and altitude components.
-  function projectedSizeConstraints(tilt,desired,dx,dz){
-    const yaw=camera.yaw*RAD;
-    const sy=Math.sin(yaw),cy=Math.cos(yaw);
-    const forward=-sy*dx+cy*dz;
-    const altitude=camera.y-spritePosition.y;
-    const widthDistance=Math.hypot(altitude,dx,dz);
-    const heightDistance=Math.hypot(altitude,forward);
-    if(widthDistance<=0.01||heightDistance<=0.01)return null;
-    const pitch=camera.pitch*RAD;
-    const widthRate=F/widthDistance;
-    const heightRate=F*desired*Math.abs(
-      Math.cos(pitch)+Math.sin(pitch)*Math.tan(tilt)/Math.SQRT2
-    )/heightDistance;
-    return {widthRate,heightRate};
-  }
-  // Camera yaw and plane facing combine into one angle for both projected
-  // axes. The foot column is shared as [F*x,F*y,depth].
-  function projectedAxisBasis(facing,tilt,foot){
-    const angle=camera.yaw*RAD+facing,pitch=camera.pitch*RAD;
-    const sinAngle=Math.sin(angle),cosAngle=Math.cos(angle);
-    const cp=Math.cos(pitch),sp=Math.sin(pitch),t=Math.tan(tilt);
-    return {
-      foot,
-      x:[F*cosAngle,-F*sp*sinAngle,cp*sinAngle],
-      y:[F*t*sinAngle,F*(cp+sp*t*cosAngle),sp-cp*t*cosAngle]
-    };
-  }
-  // Solve horizontal and vertical scales using perspective derivatives
-  // at the sprite's ground anchor.
-  function fitAxisScales(basis,sizeConstraints){
-    const {foot,x,y}=basis;
-    const {widthRate,heightRate}=sizeConstraints;
-    const depth=foot[2];
-    if(depth<=0.01)return null;
-    const xMagnitude=Math.hypot(x[0]*depth-foot[0]*x[2],x[1]*depth-foot[1]*x[2]);
-    const yMagnitude=Math.hypot(y[0]*depth-foot[0]*y[2],y[1]*depth-foot[1]*y[2]);
-    // With mX=xMagnitude and d=depth, substituting targetWidth=W*widthRate
-    // into the endpoint-width quadratic gives
-    // fitX=2*widthRate*d²/(mX+hypot(mX,widthRate*W*d*x[2])).
-    // Substituting targetHeight=H*heightRate into the anchored-height equation
-    // gives fitY=heightRate*d²/(yMagnitude+H*heightRate*d*y[2]).
-    const horizontalSpan=widthRate*W*depth*x[2];
-    const fitX=2*widthRate*depth*depth/
-      (xMagnitude+Math.hypot(xMagnitude,horizontalSpan));
-    const fitY=heightRate*depth*depth/
-      (yMagnitude+H*heightRate*depth*y[2]);
-    if(!Number.isFinite(fitX+fitY)||fitX<=0||fitY<=0)return null;
-    return {fitX,fitY};
-  }
-  // Keep the fitted top depth, then place that top on the upright top's
-  // screen ray. The expressions below are the direct ray-plane solution.
-  function anchoredVerticalAxis(basis,fitY,desired){
-    const foot=basis.foot;
-    const verticalDepth=basis.y[2]*fitY;
-    const topDepth=foot[2]-H*verticalDepth;
-    const pitch=camera.pitch*RAD;
-    const uprightDepth=foot[2]-H*desired*Math.sin(pitch);
-    if(uprightDepth<=0.01||topDepth<=0)return null;
-    const depthChange=verticalDepth-desired*Math.sin(pitch);
-    return [foot[0]*depthChange/uprightDepth,
-      (foot[1]*depthChange+F*desired*Math.cos(pitch)*topDepth)/uprightDepth,
-      verticalDepth];
-  }
-  // Express screen-projected axes in the known plane basis without building
-  // a general inverse. The foot column stays fixed at local (0,0).
-  function localTransformFromProjectedAxes(planeBasis,horizontal,vertical){
-    const {x:planeX,y:planeY,foot}=planeBasis;
-    const xCofactor=cross3(planeY,foot);
-    const yCofactor=cross3(foot,planeX);
-    const footCofactor=cross3(planeX,planeY);
-    // These dual-basis vectors recover the three coefficients of each axis.
-    const determinant=dot3(planeX,xCofactor);
-    if(!Number.isFinite(determinant)||Math.abs(determinant)<1e-10)return null;
-    const localCoordinates=axis=>[
-      dot3(axis,xCofactor)/determinant,
-      dot3(axis,yCofactor)/determinant,
-      dot3(axis,footCofactor)/determinant
-    ];
-    const x=localCoordinates(horizontal),y=localCoordinates(vertical);
-    const local=[[x[0],y[0],0],[x[1],y[1],0],[x[2],y[2],1]];
-    const pts=SPRITE_CORNERS.map(([u,v])=>transform3(local,u,v));
-    if(pts.some(p=>!Number.isFinite(p.x+p.y)||p.w<=0))return null;
-    const localYs=pts.map(p=>p.y);
-    return {local,extentY:Math.max(...localYs)-Math.min(...localYs)};
-  }
-  // Derive the in-plane mapping from the requested screen axes and fixed foot.
-  function computePerspectiveCorrection(planeBasis,screenBearing,tilt,desired,strength,dx,dz){
-    const {targetFacing,blendWeight}=interpolateTargetOrientation(screenBearing,strength);
-    const sizeConstraints=projectedSizeConstraints(tilt,desired,dx,dz);
-    if(!sizeConstraints)return null;
-    const targetBasis=projectedAxisBasis(targetFacing,tilt,planeBasis.foot);
-    const fit=fitAxisScales(targetBasis,sizeConstraints);
-    if(!fit)return null;
-    const horizontal=targetBasis.x.map(value=>value*fit.fitX);
-    const vertical=anchoredVerticalAxis(targetBasis,fit.fitY,desired);
-    if(!vertical)return null;
-    const recovered=localTransformFromProjectedAxes(planeBasis,horizontal,vertical);
-    if(!recovered)return null;
-    return {local:recovered.local,blendWeight,fitX:fit.fitX,fitY:fit.fitY,
-      extentY:recovered.extentY,maxX:W*sizeConstraints.widthRate,maxY:H*sizeConstraints.heightRate};
-  }
-  // Express a 2D projective transformation using CSS matrix3d(), since CSS
-  // matrix() only supports affine transformations and cannot represent
-  // position-dependent perspective distortion. The matrix preserves the local
-  // XY plane (z = 0), leaving its 3D orientation to rotateY() and rotateX().
-  function css2dPlaneMatrix3d(local){
-    const a=local[0],b=local[1],c=local[2];
-    return `matrix3d(${a[0]},${b[0]},0,${c[0]},`+
-      `${a[1]},${b[1]},0,${c[1]},0,0,1,0,0,0,0,1)`;
-  }
-
-  // Render stages: camera/world placement -> sprite frame -> sprite plane pose ->
-  // local correction -> CSS transform -> diagnostics -> UI readouts.
+  // Render stages: camera/world placement -> sprite frame -> foot/head anchor pose ->
+  // 3D sprite transform -> diagnostics -> UI readouts.
   function placeWorld(){
-    world.style.transform=`rotateX(${-camera.pitch}deg) rotateY(${camera.yaw}deg) `+
-      `translate3d(${-camera.x}px,${-camera.y}px,${-camera.z}px)`;
+    const c=screenCamera();
+    world.style.transform=`rotateX(${-c.pitch}deg) rotateY(${c.yaw}deg) `+
+      `translate3d(${-c.x}px,${-c.y}px,${-c.z}px)`;
   }
   function viewingDirection(){
     const dx=camera.x-spritePosition.x,dz=camera.z-spritePosition.z;
@@ -583,77 +481,41 @@
     const sector=Math.round(normalizedBearing/(Math.PI/4))%8;
     const direction=sector<=4?sector:8-sector;
     const mirror=sector>4;
-    return {direction,mirror};
+    return {direction,mirror,referenceBearing:(sector-4)*Math.PI/4};
   }
   function selectSpriteFrame(bearing){
-    const {direction,mirror}=spriteFrameForBearing(bearing);
-    if(direction!==selectedDirection||mirror!==selectedMirror){
-      selectedDirection=direction;selectedMirror=mirror;
-      updateSpritePivot(direction);
+    const frame=spriteFrameForBearing(bearing-logicalFacingYaw);
+    if(frame.direction!==selectedDirection||frame.mirror!==selectedMirror){
+      selectedDirection=frame.direction;selectedMirror=frame.mirror;
+      updateSpritePivot(frame.direction);
       updateSpriteFrameAppearance();
     }
+    return frame;
   }
-  // Face the camera position in the horizontal plane and incline around X.
-  // The texture is positioned locally to satisfy the desired screen projection.
-  function spritePlanePose(view){
-    const maxTilt=Number(tiltEl.value)*RAD;
-    const tilt=Math.min(maxTilt,Math.max(0,camera.pitch*RAD)*0.8);
-    const pivot=projectWorld(spritePosition.x,0,spritePosition.z);
-    // Measure the camera-ground direction on screen for orientation blending.
-    const cameraGround=projectWorld(camera.x,0,camera.z);
-    const screenBearing=pivot&&cameraGround&&
-      Math.hypot(cameraGround.x-pivot.x,cameraGround.y-pivot.y)>0.01
-      ?Math.atan2(cameraGround.x-pivot.x,cameraGround.y-pivot.y)
-      :view.bearing+view.yaw;
-    const facingYaw=view.bearing;
-    const footCamera=cameraSpace(spritePosition.x,spritePosition.y,spritePosition.z);
-    const foot=[F*footCamera.x,F*footCamera.y,footCamera.depth];
-    const planeBasis=projectedAxisBasis(facingYaw,tilt,foot);
-    return {tilt,screenBearing,facingYaw,planeBasis};
+  // Undo the directional view already encoded by the artwork when placing
+  // its frame-local triangle in world space. Within a sector the 3D plane is
+  // fixed to that sampled direction, while the camera view varies continuously.
+  function spritePlanePose(frame){
+    const yaw=logicalFacingYaw+frame.referenceBearing;
+    const dx=Math.cos(yaw)*W/2,dz=-Math.sin(yaw)*W/2;
+    const left=[spritePosition.x-dx,0,spritePosition.z-dz];
+    const right=[spritePosition.x+dx,0,spritePosition.z+dz];
+    const top=[spritePosition.x,GROUND_SINK-H,spritePosition.z];
+    return {referenceBearing:frame.referenceBearing,anchors:[left,right,top],
+      horizontalAxis:{x:(right[0]-left[0])/W,z:(right[2]-left[2])/W}};
   }
-  // Convert slider values to correction parameters. Projected height shortening
-  // reduces desired height progressively as positive pitch approaches 90°.
-  function correctionControls(){
-    const shortening=Number(shortenEl.value)/100;
-    const desired=1-shortening*(1-Math.cos(Math.max(0,camera.pitch*RAD)));
-    const strength=Number(warpEl.value)/100;
-    return {desired,strength};
-  }
-  // Compute local XY image coordinates and diagnostic values. The sprite
-  // retains its plane orientation if the correction cannot be computed.
-  function computeLocalCorrection(pose,view){
-    const {desired,strength}=correctionControls();
-    let local=IDENTITY_LOCAL,axisState='uncorrected sprite plane',localHeight=H;
-    let blendWeight=0,fitX=1,fitY=1,maxX=0,maxY=0;
-    const corrected=computePerspectiveCorrection(pose.planeBasis,pose.screenBearing,pose.tilt,desired,strength,view.dx,view.dz);
-    if(corrected){
-      local=corrected.local;
-      blendWeight=corrected.blendWeight;fitX=corrected.fitX;fitY=corrected.fitY;
-      localHeight=corrected.extentY;
-      maxX=corrected.maxX;maxY=corrected.maxY;
-      axisState='target orientation + projected axis fit';
-      // User-controlled extra X shear, applied only when auto-only mode
-      // is unchecked; it does not change the fitted geometric parameters.
-      if(!autoShearEl.checked){
-        local=shearLocalX(local,Number(shearEl.value)/100);
-        axisState='geometric model + manual shear';
-      }
-    }else axisState='degenerate projection - uncorrected sprite plane';
-    return {local,axisState,localHeight,blendWeight,fitX,fitY,maxX,maxY};
-  }
-  function applySpritePose(pose,correction){
+  function applySpritePose(pose){
     sprite.style.transform=`translate3d(${spritePosition.x}px,${GROUND_SINK}px,${spritePosition.z}px) `+
-      `rotateY(${pose.facingYaw/RAD}deg) rotateX(${pose.tilt/RAD}deg) `+
-      `scale(1,${1/Math.cos(pose.tilt)}) `+css2dPlaneMatrix3d(correction.local);
+      css3dCharacterMatrix(pose.horizontalAxis);
   }
   // Project the clipped source texture onto an independent ground-aligned 3D plane.
-  function updateUndergroundSprite(pose,correction,groundContext){
-    const polygon=undergroundClipPolygon(correction.local);
+  function updateUndergroundSprite(pose,groundContext){
+    const polygon=undergroundClipPolygon();
     if(polygon.length<3||!groundContext){
       undergroundEl.style.display='none';
       return;
     }
-    const homography=spriteToGroundHomography(pose,correction.local,groundContext);
+    const homography=spriteToGroundHomography(pose,groundContext);
     if(homography.flat().some(value=>!Number.isFinite(value))){
       undergroundEl.style.display='none';
       return;
@@ -662,20 +524,65 @@
     undergroundEl.style.transform = cssHomographyMatrix3d(homography);
     undergroundEl.style.display='block';
   }
-  // Measure the corrected head center relative to the sprite's ground pivot.
-  function measureSprite(pose,correction,projection){
-    const plane=pose.planeBasis,local=correction.local;
-    const footCamera=cameraCoordinates(
-      [spritePosition.x,GROUND_SINK,spritePosition.z],projection);
-    const foot=[F*footCamera.x,F*footCamera.y,footCamera.depth];
-    const localHead=transform3(local,spritePivot.headX-spritePivot.x,
-      spritePivot.headY-spritePivot.y);
-    const head=plane.x.map((value,index)=>
-      value*localHead.x+plane.y[index]*localHead.y+foot[index]);
-    const headScreen={x:projection.centerX+head[0]/head[2],
-      y:projection.centerY+head[1]/head[2]};
-    const footScreen={x:projection.centerX+foot[0]/foot[2],
-      y:projection.centerY+foot[1]/foot[2]};
+  // Show the projected sampled physical reference and rendered image triangle.
+  // Both are based on the same selected directional frame in this approximation.
+  function drawAnchorOverlay(pose,projection){
+    const spriteGroup=$('spriteAnchorGroup'),physicalGroup=$('physicalAnchorGroup');
+    spriteGroup.style.display='none';physicalGroup.style.display='none';
+    if(!trianglesEl.checked)return;
+    $('anchorOverlay').setAttribute('viewBox',`0 0 ${innerWidth} ${innerHeight}`);
+    const physicalPoints=pose.anchors.map(([x,y,z])=>projectWorld(x,y,z));
+    drawAnchorGroup(physicalGroup,$('physicalTriangle'),physicalPoints,'#ffca69','P',true);
+    const spriteProjection=characterPlaneProjection(pose.horizontalAxis,projection);
+    const spritePoints=PHYSICAL_ANCHORS.map(([u,v])=>transform3(spriteProjection,u,v));
+    drawAnchorGroup(spriteGroup,$('spriteTriangle'),
+      spritePoints.map(p=>p.w>0?{x:p.x,y:p.y}:null),'#54e8ef','S',false);
+  }
+  function drawAnchorGroup(group,triangle,points,color,prefix,dashed){
+    if(points.some(p=>!p||!Number.isFinite(p.x+p.y)))return;
+    triangle.setAttribute('points',points.map(p=>`${p.x},${p.y}`).join(' '));
+    if(!group.querySelector('circle')){
+      const radiusCircle=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      radiusCircle.setAttribute('fill','none');
+      radiusCircle.setAttribute('stroke',color);
+      radiusCircle.setAttribute('stroke-width','1.3');
+      radiusCircle.setAttribute('stroke-dasharray','2 6');
+      group.append(radiusCircle);
+      for(const label of ['L','R','T','M']){
+        const circle=document.createElementNS('http://www.w3.org/2000/svg','circle');
+        circle.setAttribute('r',label==='M'?5:dashed?7:4);
+        circle.setAttribute('fill',dashed?'#0b1927':color);
+        circle.setAttribute('stroke',color);circle.setAttribute('stroke-width','2.5');
+        const text=document.createElementNS('http://www.w3.org/2000/svg','text');
+        text.classList.add('anchor-label');text.setAttribute('fill',color);
+        text.textContent=`${prefix}-${label}`;
+        group.append(circle,text);
+      }
+    }
+    const [left,right,top]=points;
+    const middle={x:(left.x+right.x)/2,y:(left.y+right.y)/2};
+    const radius=Math.hypot(left.x-right.x,left.y-right.y)/2;
+    const radiusCircle=group.querySelector('circle');
+    radiusCircle.setAttribute('cx',middle.x);
+    radiusCircle.setAttribute('cy',middle.y);
+    radiusCircle.setAttribute('r',radius);
+    const circles=[...group.querySelectorAll('circle')].slice(1),labels=group.querySelectorAll('text');
+    [left,right,top,middle].forEach((point,i)=>{
+      circles[i].setAttribute('cx',point.x);circles[i].setAttribute('cy',point.y);
+      labels[i].setAttribute('x',point.x+(dashed?-11:10));
+      labels[i].setAttribute('y',point.y+(i===2?-13:i===3?-12:19));
+      labels[i].setAttribute('text-anchor',dashed?'end':'start');
+    });
+    group.style.display='';
+  }
+  function measureSprite(pose,projection){
+    const sourceHead=[(selectedMirror?-1:1)*(spritePivot.headX-spritePivot.x),
+      spritePivot.headY-spritePivot.y];
+    const fromSprite=characterPlaneProjection(pose.horizontalAxis,projection);
+    const head=transform3(fromSprite,...sourceHead);
+    const foot=transform3(fromSprite,0,0);
+    const headScreen={x:head.x,y:head.y};
+    const footScreen={x:foot.x,y:foot.y};
     const heightPx=Math.hypot(headScreen.x-footScreen.x,headScreen.y-footScreen.y);
     const roll=Math.atan2(headScreen.x-footScreen.x,footScreen.y-headScreen.y)/RAD;
     return {headX:headScreen.x,headY:headScreen.y,heightPx,roll};
@@ -736,28 +643,20 @@
     return transverseRead;
   }
   function updateControlReadouts(){
-    shearEl.disabled=autoShearEl.checked;
-    $('shearRead').textContent=(Number(shearEl.value)/100).toFixed(2);
-    $('tiltRead').textContent=tiltEl.value+'°';
-    $('shortRead').textContent=shortenEl.value+'%';
     $('speedRead').textContent=speedEl.value;
-    $('warpRead').textContent=warpEl.value+'%';
   }
-  function updateStats(pose,correction,measurement,transverseRead){
-    const {facingYaw,tilt}=pose;
-    const {axisState,blendWeight,fitX,fitY,maxX,maxY,localHeight}=correction;
+  function updateStats(pose,measurement,transverseRead){
     const {heightPx,roll}=measurement;
-    stats.textContent=`Position: ${camera.x.toFixed(0)}, ${(-camera.y).toFixed(0)} high, ${camera.z.toFixed(0)}\n`+
+    const referenceBearing=logicalFacingYaw+pose.referenceBearing;
+    const view=screenCamera();
+    stats.textContent=`Camera controls: ${observerMode?'OBSERVER (reference frozen)':'REFERENCE'}\n`+
+      `Reference: ${camera.x.toFixed(0)}, ${(-camera.y).toFixed(0)} high, ${camera.z.toFixed(0)} | ${camera.yaw.toFixed(0)}° / ${camera.pitch.toFixed(0)}°\n`+
+      `Screen: ${view.x.toFixed(0)}, ${(-view.y).toFixed(0)} high, ${view.z.toFixed(0)} | ${view.yaw.toFixed(0)}° / ${view.pitch.toFixed(0)}°\n`+
       `Yaw / pitch: ${camera.yaw.toFixed(0)}° / ${camera.pitch.toFixed(0)}°\n`+
-      `Plane: continuous facing with X inclination\n`+
-      `Sprite plane yaw: ${(facingYaw/RAD).toFixed(1)}°\n`+
-      `Sprite plane tilt: ${(tilt/RAD).toFixed(1)}°\n`+
-      `Local XY: ${axisState}\n`+
-      `Target orientation blend: ${(blendWeight*200).toFixed(0)}%\n`+
-      `Target projected dimensions: ${maxX.toFixed(1)} x ${maxY.toFixed(1)} px\n`+
-      `Axis scales: ${(fitX*100).toFixed(0)}% / ${(fitY*100).toFixed(0)}%\n`+
+      `Logical facing: ${(logicalFacingYaw/RAD).toFixed(1)}°\n`+
+      `Sprite transform: visual foot/head anchor reconstruction\n`+
+      `Selected frame bearing: ${(referenceBearing/RAD).toFixed(1)}°\n`+
       `Projected centerline: ${heightPx.toFixed(1)} px; angle ${roll.toFixed(1)}°\n`+
-      `Local Y extent: ${localHeight.toFixed(1)} / ${H} units\n`+
       `Head-center transverse: ${transverseRead}\n`+
       `Mouse: ${document.pointerLockElement===viewport?'locked':'unlocked'}`;
   }
@@ -766,27 +665,29 @@
     const projection=cameraProjectionContext();
     const groundContext=groundProjectionContext(projection);
     const view=viewingDirection();
-    selectSpriteFrame(view.bearing);
-    const pose=spritePlanePose(view);
-    const correction=computeLocalCorrection(pose,view);
-    drawSprite(aboveGroundClipPolygon(correction.local));
-    applySpritePose(pose,correction);
-    updateUndergroundSprite(pose,correction,groundContext);
-    const measurement=measureSprite(pose,correction,projection);
+    const frame=selectSpriteFrame(view.bearing);
+    const pose=spritePlanePose(frame);
+    drawSprite(aboveGroundClipPolygon());
+    applySpritePose(pose);
+    updateUndergroundSprite(pose,groundContext);
+    drawAnchorOverlay(pose,projection);
+    const measurement=measureSprite(pose,projection);
     const transverseRead=updateTransverseGuide(measurement.headX,measurement.headY);
     updateControlReadouts();
-    updateStats(pose,correction,measurement,transverseRead);
+    updateStats(pose,measurement,transverseRead);
+    return {frame,pose,measurement};
   }
   // Input event routing -> camera controls -> frame stepping.
   function usePreset(button){
-    Object.assign(camera,presets[button.dataset.preset]);
+    Object.assign(controlledCamera(),presets[button.dataset.preset]);
     transverseExtrema.axis=null;
     button.blur();
   }
   function handlePointerLook(event){
     if(document.pointerLockElement!==viewport)return;
-    camera.yaw+=event.movementX*0.12;
-    camera.pitch=Math.max(-90,Math.min(90,camera.pitch+event.movementY*0.12));
+    const c=controlledCamera();
+    c.yaw+=event.movementX*0.12;
+    c.pitch=Math.max(-90,Math.min(90,c.pitch+event.movementY*0.12));
   }
   // Navigation keys operate globally even if a control had focus; other
   // typing is left to the focused control.
@@ -800,9 +701,15 @@
     keys.add(event.code);
     if(event.code==='KeyH'&&!event.repeat)$('panel').hidden=!$('panel').hidden;
     // R clears the transverse measurement session.
-    if(event.code==='KeyR'&&!event.repeat){Object.assign(camera,start);transverseExtrema.axis=null;}
+    if(event.code==='KeyR'&&!event.repeat){transverseExtrema.axis=null;}
   }
   function bindInputEvents(){
+    $('cameraMode').addEventListener('click',()=>{
+      if(!observerMode)Object.assign(observerCamera,camera);
+      observerMode=!observerMode;
+      updateCameraButtons();keys.clear();
+    });
+    $('resetObserver').addEventListener('click',()=>Object.assign(observerCamera,camera));
     document.querySelectorAll('[data-preset]').forEach(button=>{
       button.addEventListener('click',()=>usePreset(button));
     });
@@ -818,12 +725,12 @@
   bindInputEvents();
   let previous=performance.now();
   function applyKeyboardLook(dt){
-    const look=75*dt;
-    if(keys.has('ArrowLeft'))camera.yaw-=look;
-    if(keys.has('ArrowRight'))camera.yaw+=look;
-    if(keys.has('ArrowUp'))camera.pitch-=look;
-    if(keys.has('ArrowDown'))camera.pitch+=look;
-    camera.pitch=Math.max(-90,Math.min(90,camera.pitch));
+    const c=controlledCamera(),look=75*dt;
+    if(keys.has('ArrowLeft'))c.yaw-=look;
+    if(keys.has('ArrowRight'))c.yaw+=look;
+    if(keys.has('ArrowUp'))c.pitch-=look;
+    if(keys.has('ArrowDown'))c.pitch+=look;
+    c.pitch=Math.max(-90,Math.min(90,c.pitch));
   }
   // Move relative to camera yaw, with Shift/Space providing vertical input.
   // Normalize multi-axis movement so diagonal flight keeps the same speed.
@@ -831,10 +738,11 @@
     const f=Number(keys.has('KeyW'))-Number(keys.has('KeyS'));
     const r=Number(keys.has('KeyD'))-Number(keys.has('KeyA'));
     const u=Number(keys.has('ShiftLeft')||keys.has('ShiftRight'))-Number(keys.has('Space'));
-    const mag=Math.hypot(f,r,u)||1,y=camera.yaw*RAD,step=speed*dt/mag;
-    camera.x+=(Math.sin(y)*f+Math.cos(y)*r)*step;
-    camera.z+=(-Math.cos(y)*f+Math.sin(y)*r)*step;
-    camera.y+=u*step;
+    const c=controlledCamera();
+    const mag=Math.hypot(f,r,u)||1,y=c.yaw*RAD,step=speed*dt/mag;
+    c.x+=(Math.sin(y)*f+Math.cos(y)*r)*step;
+    c.z+=(-Math.cos(y)*f+Math.sin(y)*r)*step;
+    c.y+=u*step;
   }
   function moveCamera(dt){
     const speed=Number(speedEl.value)*(keys.has('ControlLeft')||keys.has('ControlRight')?3:1);
@@ -872,8 +780,12 @@
   // Expose renderer state for programmatic diagnostics.
   window.snapshotCameraJSON=snapshotCameraJSON;
   window.applyCameraSnapshot=applyCameraSnapshot;
-  window.__labTest={camera,render,autoShearEl,topCenter,transverseExtrema,
-    snapshotCameraJSON,applyCameraSnapshot};
+  window.__labTest={camera,observerCamera,render,topCenter,transverseExtrema,
+    get observerMode(){return observerMode},
+    set observerMode(value){observerMode=Boolean(value);updateCameraButtons()},
+    snapshotCameraJSON,applyCameraSnapshot,
+    get logicalFacingYaw(){return logicalFacingYaw},
+    set logicalFacingYaw(value){logicalFacingYaw=value}};
   requestAnimationFrame(animate);
 })();
 </script>
