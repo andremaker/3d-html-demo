@@ -5,28 +5,26 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Zombie billboard — continuous orientation</title>
 <style>
-  :root {font:13px/1.45 system-ui,sans-serif;color-scheme:dark}
+  :root {font:13px/1.45 system-ui,sans-serif;color-scheme:dark;
+    --sprite-zero-x:36.486486px;--sprite-zero-y:141.559322px}
   * {box-sizing:border-box}
   html,body {margin:0;width:100%;height:100%;overflow:hidden;background:#142333;color:#e8f2ff}
   #viewport {position:fixed;inset:0;overflow:hidden;perspective:850px;perspective-origin:50% 50%;
     background:linear-gradient(#18314b,#6e91a5 68%,#a5b6b5)}
-  #scene {position:absolute;left:50%;top:50%;width:0;height:0;
+  #groundLayer {position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+  #groundCanvas {position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  #scene {position:absolute;left:50%;top:50%;width:0;height:0;z-index:1;
     transform:translateZ(850px);transform-style:preserve-3d}
   #world {position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d}
-  #ground {position:absolute;left:-5000px;top:-5000px;width:10000px;height:10000px;
-    transform-style:preserve-3d;backface-visibility:visible;
-    background-color:#415b59;
-    background-image:linear-gradient(90deg,#152b3680 2px,transparent 2px),
-      linear-gradient(#152b3680 2px,transparent 2px),
-      linear-gradient(90deg,#c9e6d43b 1px,transparent 1px),
-      linear-gradient(#c9e6d43b 1px,transparent 1px);
-    background-size:250px 250px,250px 250px,50px 50px,50px 50px}
   .plane {position:absolute;left:-45px;top:-180px;width:90px;height:180px;
     transform-origin:45px 180px;backface-visibility:visible;will-change:transform}
-  #sprite {--visual-zero-x:36.486486px;left:calc(0px - var(--visual-zero-x));top:-141.559322px;
-    transform-origin:var(--visual-zero-x) 141.559322px}
-  #sprite canvas {display:block;width:90px;height:180px;image-rendering:pixelated;
-    transform-origin:var(--visual-zero-x) 0}
+  #sprite {left:-45px;top:-180px;transform-origin:45px 180px}
+  #sprite canvas {position:absolute;left:calc(45px - var(--sprite-zero-x));
+    top:calc(180px - var(--sprite-zero-y));display:block;width:90px;height:180px;image-rendering:pixelated;
+    transform-origin:var(--sprite-zero-x) 0}
+  #undergroundSprite {position:absolute;left:0;top:0;width:90px;height:180px;
+    display:none;pointer-events:none;transform-origin:0 0;
+    background-image:url('assets/sprites/zombie.png');background-repeat:no-repeat;image-rendering:pixelated}
   .face {position:absolute;transform-origin:center center;backface-visibility:visible;
     display:flex;align-items:center;justify-content:center;text-align:center;
     font-size:11px;font-weight:750;letter-spacing:.03em;color:#18252c;text-shadow:0 1px 0 #ffffff65;
@@ -74,8 +72,8 @@
 </style>
 </head>
 <body>
-<div id="viewport"><div id="scene"><div id="world"><div id="ground"></div></div></div></div>
-<svg id="transverseOverlay" aria-label="Top-center transverse position and extrema">
+<div id="viewport"><div id="groundLayer"><canvas id="groundCanvas"></canvas></div><div id="scene"><div id="world"></div></div></div>
+<svg id="transverseOverlay" aria-label="Head-center transverse position and extrema">
   <line id="transverseGuide" stroke="#f9ed7b" stroke-width="1.5" stroke-dasharray="2 5"/>
   <circle id="transverseMinimum" r="5" fill="#72e4d2" stroke="#173041" stroke-width="1"/>
   <circle id="transverseMaximum" r="5" fill="#ff9a76" stroke="#173041" stroke-width="1"/>
@@ -112,12 +110,19 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(id);
-  const world=$('world'), ground=$('ground'), viewport=$('viewport');
+  const world=$('world'), groundCanvas=$('groundCanvas'), viewport=$('viewport');
   const tiltEl=$('tilt'), shortenEl=$('shortening');
   const speedEl=$('speed'), warpEl=$('warp'), debugBoxEl=$('debugBox'), extremaEl=$('extrema');
   const autoShearEl=$('manualShear'), shearEl=$('shear');
   const stats=$('stats'), RAD=Math.PI/180, F=850;
   const W=90,H=180;
+  const GROUND_SINK=5; // Local sprite units sunk below the ground plane.
+  const GROUND_GRID=50,GROUND_MAJOR_GRID=250,GROUND_DRAW_RANGE=5000;
+  const SPRITE_CROP={x:50,y:42,width:37,height:59,drawY:12,drawHeight:156};
+  const SPRITE_SHEET={width:640,height:129,frameWidth:128};
+  // [head-center X, head-center Y] pixel-bound coordinates in each 37×59 crop.
+  const FRAME_CENTERS=[[15.5,7],[18,7],[16.5,9],[16,10],[13.5,8]];
+  const spritePivot={x:36.486486,y:141.559322,headX:0,headY:0};
   const IDENTITY_LOCAL=[[1,0,0],[0,1,0],[0,0,1]];
   const SPRITE_CORNERS=[[-W/2,-H],[W/2,-H],[W/2,0],[-W/2,0]];
   const spritePosition={x:0,y:0,z:0};
@@ -135,13 +140,19 @@
   const transverseExtrema={axis:null,min:Infinity,max:-Infinity};
   const keys=new Set();
   // The canvas displays a directional zombie frame from assets/sprites/.
-  // An optional debug grid and frame reveal the underlying plane boundaries
-  // that would otherwise be hidden by transparent image pixels.
+  // An optional debug grid and frame reveal the raster bounds behind transparent pixels.
   const img=document.createElement('canvas');
   img.width=W; img.height=H;
   const ctx=img.getContext('2d');
+  const groundCtx=groundCanvas.getContext('2d');
+  let lastGroundKey='';
+  const undergroundEl=document.createElement('div');
+  undergroundEl.id='undergroundSprite';
+  world.append(undergroundEl);
   const zombieImage=new Image();
   let selectedDirection=0, selectedMirror=false;
+  let currentAboveGroundPolygon=null;
+  let topCenter=null;
   // Draw in order: optional debug background, directional frame, optional border.
   function drawDebugBackground(){
     ctx.fillStyle='#193949';ctx.fillRect(0,0,W,H);
@@ -154,7 +165,8 @@
   function drawZombieTexture(){
     if(zombieImage.complete&&zombieImage.naturalWidth){
       ctx.imageSmoothingEnabled=false;
-      ctx.drawImage(zombieImage,selectedDirection*128+50,42,37,59,0,12,90,156);
+      ctx.drawImage(zombieImage,selectedDirection*SPRITE_SHEET.frameWidth+SPRITE_CROP.x,SPRITE_CROP.y,
+        SPRITE_CROP.width,SPRITE_CROP.height,0,SPRITE_CROP.drawY,W,SPRITE_CROP.drawHeight);
     }
   }
   function drawDebugFrame(){
@@ -163,17 +175,89 @@
     ctx.strokeStyle='#ffdc7b';ctx.lineWidth=3;
     ctx.strokeRect(1.5,1.5,W-3,H-3);
   }
-  function drawSprite(){
+  // Clip the visible pixels into the source canvas, avoiding a CSS clip layer
+  // between the sprite and the ground-aligned redraw.
+  function drawSprite(aboveGroundPolygon=currentAboveGroundPolygon){
+    currentAboveGroundPolygon=aboveGroundPolygon;
     ctx.clearRect(0,0,W,H);
+    ctx.save();
+    if(aboveGroundPolygon){
+      ctx.beginPath();
+      if(aboveGroundPolygon.length>=3){
+        ctx.moveTo(aboveGroundPolygon[0].x,aboveGroundPolygon[0].y);
+        for(let i=1;i<aboveGroundPolygon.length;i++)
+          ctx.lineTo(aboveGroundPolygon[i].x,aboveGroundPolygon[i].y);
+        ctx.closePath();
+      }
+      ctx.clip();
+    }
     if(debugBoxEl.checked)drawDebugBackground();
     drawZombieTexture();
     if(debugBoxEl.checked)drawDebugFrame();
-    // Reflect the artwork around the same visual zero as the parent plane.
-    img.style.transform=selectedMirror?'scaleX(-1)':'none';
+    ctx.restore();
   }
-  zombieImage.onload=drawSprite;
-  debugBoxEl.addEventListener('change',drawSprite);
+  function updateSpriteFrameAppearance(){
+    img.style.transform=selectedMirror?'scaleX(-1)':'none';
+    const scaleX=W/SPRITE_CROP.width,scaleY=SPRITE_CROP.drawHeight/SPRITE_CROP.height;
+    undergroundEl.style.backgroundSize=
+      `${SPRITE_SHEET.width*scaleX}px ${SPRITE_SHEET.height*scaleY}px`;
+    undergroundEl.style.backgroundPosition=
+      `${-(selectedDirection*SPRITE_SHEET.frameWidth+SPRITE_CROP.x)*scaleX}px `+
+      `${SPRITE_CROP.drawY-SPRITE_CROP.y*scaleY}px`;
+  }
+  // Keep the original fixed visual pivot while tracking each frame's head center.
+  function updateSpritePivot(direction){
+    const [headCropX,headCropY]=FRAME_CENTERS[direction];
+    spritePivot.headX=headCropX*W/SPRITE_CROP.width;
+    spritePivot.headY=SPRITE_CROP.drawY+headCropY*SPRITE_CROP.drawHeight/SPRITE_CROP.height;
+    if(topCenter){
+      topCenter.style.left=`${W/2+spritePivot.headX-spritePivot.x}px`;
+      topCenter.style.top=`${H+spritePivot.headY-spritePivot.y}px`;
+    }
+  }
+  // Split the source texture at its corrected crossing with the ground.
+  function spriteGroundClipPolygon(local,submerged){
+    const mirror=selectedMirror?-1:1;
+    const sourceToPlane=[[mirror,0,selectedMirror?spritePivot.x:-spritePivot.x],
+      [0,1,-spritePivot.y],[0,0,1]];
+    const sourceToCorrected=multiplyMatrices(local,sourceToPlane);
+    let polygon=[{x:0,y:0},{x:W,y:0},{x:W,y:H},{x:0,y:H}];
+    polygon=clipPolygonHalfPlane(polygon,point=>
+      sourceToCorrected[2][0]*point.x+sourceToCorrected[2][1]*point.y+
+        sourceToCorrected[2][2]);
+    polygon=clipPolygonHalfPlane(polygon,point=>{
+      const groundDistance=sourceToCorrected[1][0]*point.x+
+        sourceToCorrected[1][1]*point.y+sourceToCorrected[1][2]+
+        GROUND_SINK*(sourceToCorrected[2][0]*point.x+
+          sourceToCorrected[2][1]*point.y+sourceToCorrected[2][2]);
+      return submerged?groundDistance:-groundDistance;
+    });
+    polygon=clipPolygonHalfPlane(polygon,point=>point.y-SPRITE_CROP.drawY);
+    polygon=clipPolygonHalfPlane(polygon,point=>
+      SPRITE_CROP.drawY+SPRITE_CROP.drawHeight-point.y);
+    return polygon;
+  }
+  function undergroundClipPolygon(local){return spriteGroundClipPolygon(local,true)}
+  function aboveGroundClipPolygon(local){return spriteGroundClipPolygon(local,false)}
+  function clipPolygonHalfPlane(polygon,signedDistance){
+    const clipped=[];
+    for(let i=0;i<polygon.length;i++){
+      const current=polygon[i],previous=polygon[(i+polygon.length-1)%polygon.length];
+      const currentDistance=signedDistance(current),previousDistance=signedDistance(previous);
+      const currentInside=currentDistance>=0,previousInside=previousDistance>=0;
+      if(currentInside!==previousInside){
+        const t=previousDistance/(previousDistance-currentDistance);
+        clipped.push({x:previous.x+(current.x-previous.x)*t,
+          y:previous.y+(current.y-previous.y)*t});
+      }
+      if(currentInside)clipped.push(current);
+    }
+    return clipped;
+  }
+  zombieImage.onload=()=>{updateSpriteFrameAppearance();drawSprite()};
+  debugBoxEl.addEventListener('change',()=>drawSprite());
   drawSprite();
+  updateSpriteFrameAppearance();
   zombieImage.src='assets/sprites/zombie.png';
   // Construct the sprite, six prism faces, and their two ground markers.
   function createSprite(){
@@ -208,13 +292,14 @@
     makeFace('BOTTOM',prismW,prismD,'#755a80',p.x,0,p.z,'rotateX(-90deg)');
   }
   function createGroundMarkers(){
-    for(const position of [spritePosition,prismPosition]){
-      const foot=document.createElement('div');foot.className='foot';
-      foot.style.transform=`translate3d(${position.x}px,-2px,${position.z}px) rotateX(90deg)`;
-      world.append(foot);
-    }
+    const foot=document.createElement('div');foot.className='foot';
+    foot.style.transform=`translate3d(${prismPosition.x}px,-2px,${prismPosition.z}px) rotateX(90deg)`;
+    world.append(foot);
   }
-  const {sprite,topCenter}=createSprite();
+  const createdSprite=createSprite();
+  const sprite=createdSprite.sprite;
+  topCenter=createdSprite.topCenter;
+  updateSpritePivot(selectedDirection);
   createPrism();
   createGroundMarkers();
   // Convert world coordinates to camera-space lateral, vertical, and depth
@@ -239,6 +324,182 @@
     const w=M[2][0]*x+M[2][1]*y+M[2][2];
     return {x:(M[0][0]*x+M[0][1]*y+M[0][2])/w,
       y:(M[1][0]*x+M[1][1]*y+M[1][2])/w,w};
+  }
+  function multiplyMatrices(a,b){
+    return a.map(row=>b[0].map((_,column)=>
+      row.reduce((sum,value,index)=>sum+value*b[index][column],0)));
+  }
+  function invertHomography(matrix){
+    const [[a,b,c],[d,e,f],[g,h,i]]=matrix;
+    const cofactors=[[e*i-f*h,c*h-b*i,b*f-c*e],
+      [f*g-d*i,a*i-c*g,c*d-a*f],
+      [d*h-e*g,b*g-a*h,a*e-b*d]];
+    const determinant=a*cofactors[0][0]+b*cofactors[1][0]+c*cofactors[2][0];
+    const rowProduct=matrix.reduce((product,row)=>
+      product*Math.hypot(...row),1);
+    if(!Number.isFinite(determinant)||rowProduct===0||
+      Math.abs(determinant)<=Number.EPSILON*64*rowProduct)return null;
+    return cofactors.map(row=>row.map(value=>value/determinant));
+  }
+  function cameraProjectionContext(){
+    const yaw=camera.yaw*RAD,pitch=camera.pitch*RAD;
+    return {x:camera.x,y:camera.y,z:camera.z,
+      sinYaw:Math.sin(yaw),cosYaw:Math.cos(yaw),
+      sinPitch:Math.sin(pitch),cosPitch:Math.cos(pitch),
+      centerX:innerWidth/2,centerY:innerHeight/2};
+  }
+  function cameraCoordinates(point,projection,isVector=false){
+    const dx=point[0]-(isVector?0:projection.x);
+    const dy=point[1]-(isVector?0:projection.y);
+    const dz=point[2]-(isVector?0:projection.z);
+    const forward=-projection.sinYaw*dx+projection.cosYaw*dz;
+    return {x:projection.cosYaw*dx+projection.sinYaw*dz,
+      y:projection.cosPitch*dy+projection.sinPitch*forward,
+      depth:projection.sinPitch*dy-projection.cosPitch*forward};
+  }
+  function projectedHomogeneous(point,projection){
+    return [F*point.x+projection.centerX*point.depth,
+      F*point.y+projection.centerY*point.depth,point.depth];
+  }
+  function clipGroundLine(start,end,projection,width,height){
+    const a=projectedHomogeneous(cameraCoordinates(start,projection),projection);
+    const b=projectedHomogeneous(cameraCoordinates(end,projection),projection);
+    const boundaries=[
+      point=>point[2]-0.01,
+      point=>point[0],
+      point=>width*point[2]-point[0],
+      point=>point[1],
+      point=>height*point[2]-point[1]
+    ];
+    let first=0,last=1;
+    for(const boundary of boundaries){
+      const from=boundary(a),to=boundary(b);
+      if(!Number.isFinite(from+to)||from<0&&to<0)return null;
+      if(from<0||to<0){
+        const crossing=from/(from-to);
+        if(from<0)first=Math.max(first,crossing);
+        else last=Math.min(last,crossing);
+      }
+    }
+    if(first>last)return null;
+    const screenPoint=t=>{
+      const depth=a[2]+(b[2]-a[2])*t;
+      return {x:(a[0]+(b[0]-a[0])*t)/depth,
+        y:(a[1]+(b[1]-a[1])*t)/depth};
+    };
+    return [screenPoint(first),screenPoint(last)];
+  }
+  // Draw the grid as a camera-relative backdrop; 3D objects and the redraw
+  // remain in the world scene and can still depth-sort against each other.
+  function drawGround(projection) {
+    const width = innerWidth;
+    const height = innerHeight;
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    const pixelWidth = Math.round(width * pixelRatio);
+    const pixelHeight = Math.round(height * pixelRatio);
+    const key = [camera.x, camera.y, camera.z, camera.yaw, camera.pitch, width, height, pixelRatio].join('|');
+    if (key === lastGroundKey) { return; }
+    lastGroundKey = key;
+    if (groundCanvas.width !== pixelWidth || groundCanvas.height !== pixelHeight) {
+      groundCanvas.width = pixelWidth;
+      groundCanvas.height = pixelHeight;
+    }
+    groundCtx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+    groundCtx.clearRect(0, 0, width, height);
+    const horizonY = height / 2 - F * Math.tan(camera.pitch * RAD);
+    if (horizonY < height) {
+      groundCtx.fillStyle = '#415b59';
+      groundCtx.fillRect(0, Math.max(0, horizonY), width, height - Math.max(0, horizonY));
+      const minorPath = new Path2D();
+      const majorPath = new Path2D();
+      const addLine = (path, start, end) => {
+        const segment = clipGroundLine(start, end, projection, width, height);
+        if (!segment) { return; }
+        path.moveTo(segment[0].x, segment[0].y);
+        path.lineTo(segment[1].x, segment[1].y);
+      };
+      for (const [center, fixedAxis, lineAxis] of [[camera.x, 0, 2], [camera.z, 2, 0]]) {
+        const firstIndex = Math.floor((center - GROUND_DRAW_RANGE) / GROUND_GRID);
+        const lastIndex = Math.ceil((center + GROUND_DRAW_RANGE) / GROUND_GRID);
+        for (let index = firstIndex; index <= lastIndex; index++) {
+          const coordinate = index * GROUND_GRID;
+          const path = index % (GROUND_MAJOR_GRID / GROUND_GRID) === 0 ? majorPath : minorPath;
+          const start = [camera.x, 0, camera.z];
+          const end = [camera.x, 0, camera.z];
+          start[fixedAxis] = coordinate;
+          end[fixedAxis] = coordinate;
+          start[lineAxis] -= GROUND_DRAW_RANGE;
+          end[lineAxis] += GROUND_DRAW_RANGE;
+          addLine(path, start, end);
+        }
+      }
+      const fadeStart = Math.max(0, Math.min(height - 160, horizonY));
+      const gridFades = [
+        [minorPath, '201,230,212', 1, [[0, 0], [0.2, 0.035], [0.6, 0.14], [1, 0.23]]],
+        [majorPath, '21,43,54', 2, [[0, 0], [0.25, 0.12], [0.65, 0.38], [1, 0.5]]]
+      ];
+      groundCtx.save();
+      groundCtx.beginPath();
+      groundCtx.rect(0, Math.max(0, horizonY + 1), width, height);
+      groundCtx.clip();
+      for (const [path, color, lineWidth, stops] of gridFades) {
+        const gradient = groundCtx.createLinearGradient(0, fadeStart, 0, fadeStart + 160);
+        for (const [offset, opacity] of stops) {
+          gradient.addColorStop(offset, `rgba(${color},${opacity})`);
+        }
+        groundCtx.strokeStyle = gradient;
+        groundCtx.lineWidth = lineWidth;
+        groundCtx.stroke(path);
+      }
+      groundCtx.restore();
+    }
+    const marker = projectWorld(spritePosition.x, 0, spritePosition.z);
+    if (marker) {
+      const glow = groundCtx.createRadialGradient(marker.x, marker.y, 0, marker.x, marker.y, 12);
+      glow.addColorStop(0, '#fff8c5');
+      glow.addColorStop(0.35, '#fff8c5c9');
+      glow.addColorStop(1, '#fff8c500');
+      groundCtx.fillStyle = glow;
+      groundCtx.beginPath();
+      groundCtx.arc(marker.x, marker.y, 12, 0, Math.PI * 2);
+      groundCtx.fill();
+    }
+  }
+  function planeToScreenHomography(origin,basisX,basisY,projection){
+    const columns=[basisX,basisY,origin].map((point,index)=>
+      projectedHomogeneous(cameraCoordinates(point,projection,index<2),projection));
+    return [[columns[0][0],columns[1][0],columns[2][0]],
+      [columns[0][1],columns[1][1],columns[2][1]],
+      [columns[0][2],columns[1][2],columns[2][2]]];
+  }
+  function cssHomographyMatrix3d(homography){
+    const magnitude=Math.max(...homography.flat().map(Math.abs));
+    if(!Number.isFinite(magnitude)||magnitude===0)return 'matrix3d(0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1)';
+    const [[a,b,c],[d,e,f],[g,h,i]]=homography.map(row=>row.map(value=>value/magnitude));
+    return `matrix3d(${a},${d},0,${g},${b},${e},0,${h},0,0,1,0,${c},${f},0,${i})`;
+  }
+  function groundProjectionContext(projection){
+    const groundToScreen=planeToScreenHomography(
+      [0,0,0],[1,0,0],[0,0,1],projection);
+    const screenToGround=invertHomography(groundToScreen);
+    return screenToGround?{projection,screenToGround}:null;
+  }
+  function spriteToGroundHomography(pose,local,groundContext){
+    const yaw=pose.facingYaw,tilt=pose.tilt;
+    const cosYaw=Math.cos(yaw),sinYaw=Math.sin(yaw),tiltSlope=Math.tan(tilt);
+    const localToScreen=planeToScreenHomography(
+      [spritePosition.x,GROUND_SINK,spritePosition.z],
+      [cosYaw,0,-sinYaw],
+      [sinYaw*tiltSlope,1,cosYaw*tiltSlope],groundContext.projection);
+    const mirror=selectedMirror?-1:1;
+    const sourceToPlane=[[mirror,0,selectedMirror?spritePivot.x:-spritePivot.x],
+      [0,1,-spritePivot.y],[0,0,1]];
+    const sourceToScreen=multiplyMatrices(localToScreen,
+      multiplyMatrices(local,sourceToPlane));
+    return multiplyMatrices(groundContext.screenToGround,sourceToScreen);
+  }
+  function polygonClipPath(polygon){
+    return `polygon(${polygon.map(point=>`${point.x}px ${point.y}px`).join(',')})`;
   }
   // Apply an additional horizontal shear to the local texture coordinates.
   function shearLocalX(local,shear){
@@ -380,8 +641,6 @@
   function placeWorld(){
     world.style.transform=`rotateX(${-camera.pitch}deg) rotateY(${camera.yaw}deg) `+
       `translate3d(${-camera.x}px,${-camera.y}px,${-camera.z}px)`;
-    const cx=Math.round(camera.x/250)*250,cz=Math.round(camera.z/250)*250;
-    ground.style.transform=`translate3d(${cx}px,0px,${cz}px) rotateX(90deg)`;
   }
   function viewingDirection(){
     const dx=camera.x-spritePosition.x,dz=camera.z-spritePosition.z;
@@ -400,7 +659,8 @@
     const {direction,mirror}=spriteFrameForBearing(bearing);
     if(direction!==selectedDirection||mirror!==selectedMirror){
       selectedDirection=direction;selectedMirror=mirror;
-      drawSprite();
+      updateSpritePivot(direction);
+      updateSpriteFrameAppearance();
     }
   }
   // Face the camera position in the horizontal plane and incline around X.
@@ -452,25 +712,44 @@
     return {local,axisState,localHeight,blendWeight,fitX,fitY,maxX,maxY};
   }
   function applySpritePose(pose,correction){
-    sprite.style.transform=`translate3d(${spritePosition.x}px,0px,${spritePosition.z}px) `+
+    sprite.style.transform=`translate3d(${spritePosition.x}px,${GROUND_SINK}px,${spritePosition.z}px) `+
       `rotateY(${pose.facingYaw/RAD}deg) rotateX(${pose.tilt/RAD}deg) `+
       `scale(1,${1/Math.cos(pose.tilt)}) `+css2dPlaneMatrix3d(correction.local);
   }
-  // Project the sprite centerline and read its displayed top-center marker.
-  function measureSprite(pose,correction){
-    const plane=pose.planeBasis,local=correction.local,foot=plane.foot;
-    const vertical=plane.x.map((value,index)=>
-      value*local[0][1]+plane.y[index]*local[1][1]+foot[index]*local[2][1]);
-    const headDepth=vertical[2]*(-H)+foot[2];
-    const head={x:(vertical[0]*(-H)+foot[0])/headDepth,
-      y:(vertical[1]*(-H)+foot[1])/headDepth};
-    // The marker follows the same local XY coordinates as the image.
-    const anchor=topCenter.getBoundingClientRect();
-    const topX=anchor.x,topY=anchor.y;
-    const footX=foot[0]/foot[2],footY=foot[1]/foot[2];
-    const heightPx=Math.hypot(head.x-footX,head.y-footY);
-    const roll=Math.atan2(head.x-footX,footY-head.y)/RAD;
-    return {topX,topY,heightPx,roll};
+  // Project the clipped source texture onto an independent ground-aligned 3D plane.
+  function updateUndergroundSprite(pose,correction,groundContext){
+    const polygon=undergroundClipPolygon(correction.local);
+    if(polygon.length<3||!groundContext){
+      undergroundEl.style.display='none';
+      return;
+    }
+    const homography=spriteToGroundHomography(pose,correction.local,groundContext);
+    if(homography.flat().some(value=>!Number.isFinite(value))){
+      undergroundEl.style.display='none';
+      return;
+    }
+    undergroundEl.style.clipPath=polygonClipPath(polygon);
+    undergroundEl.style.transform=`translate3d(0,-0.1px,0) rotateX(90deg) `+
+      cssHomographyMatrix3d(homography);
+    undergroundEl.style.display='block';
+  }
+  // Measure the corrected head center relative to the sprite's ground pivot.
+  function measureSprite(pose,correction,projection){
+    const plane=pose.planeBasis,local=correction.local;
+    const footCamera=cameraCoordinates(
+      [spritePosition.x,GROUND_SINK,spritePosition.z],projection);
+    const foot=[F*footCamera.x,F*footCamera.y,footCamera.depth];
+    const localHead=transform3(local,spritePivot.headX-spritePivot.x,
+      spritePivot.headY-spritePivot.y);
+    const head=plane.x.map((value,index)=>
+      value*localHead.x+plane.y[index]*localHead.y+foot[index]);
+    const headScreen={x:projection.centerX+head[0]/head[2],
+      y:projection.centerY+head[1]/head[2]};
+    const footScreen={x:projection.centerX+foot[0]/foot[2],
+      y:projection.centerY+foot[1]/foot[2]};
+    const heightPx=Math.hypot(headScreen.x-footScreen.x,headScreen.y-footScreen.y);
+    const roll=Math.atan2(headScreen.x-footScreen.x,footScreen.y-headScreen.y)/RAD;
+    return {headX:headScreen.x,headY:headScreen.y,heightPx,roll};
   }
   // Classify the currently held WASD keys in screen-transverse diagnostics;
   // diagonal motion cannot define a single measurement axis.
@@ -490,39 +769,39 @@
       transverseExtrema.max=-Infinity;
     }
   }
-  function setTransversePoint(id,value,vertical,topX,topY){
-    $(id).setAttribute('cx',vertical?value:topX);
-    $(id).setAttribute('cy',vertical?topY:value);
+  function setTransversePoint(id,value,vertical,headX,headY){
+    $(id).setAttribute('cx',vertical?value:headX);
+    $(id).setAttribute('cy',vertical?headY:value);
   }
   // Render the min/max/current markers along the transverse screen axis.
   // The checkbox controls visibility, not whether extrema are measured.
-  function placeTransverseGuide(vertical,topX,topY,min,max,current){
+  function placeTransverseGuide(vertical,headX,headY,min,max,current){
     const half=Math.max(70,Math.abs(max-min)+16);
     const guide=$('transverseGuide');
-    guide.setAttribute('x1',vertical?topX-half:topX);
-    guide.setAttribute('y1',vertical?topY:topY-half);
-    guide.setAttribute('x2',vertical?topX+half:topX);
-    guide.setAttribute('y2',vertical?topY:topY+half);
-    setTransversePoint('transverseMinimum',min,vertical,topX,topY);
-    setTransversePoint('transverseMaximum',max,vertical,topX,topY);
-    setTransversePoint('transverseCurrent',current,vertical,topX,topY);
+    guide.setAttribute('x1',vertical?headX-half:headX);
+    guide.setAttribute('y1',vertical?headY:headY-half);
+    guide.setAttribute('x2',vertical?headX+half:headX);
+    guide.setAttribute('y2',vertical?headY:headY+half);
+    setTransversePoint('transverseMinimum',min,vertical,headX,headY);
+    setTransversePoint('transverseMaximum',max,vertical,headX,headY);
+    setTransversePoint('transverseCurrent',current,vertical,headX,headY);
     $('transverseOverlay').style.display=extremaEl.checked?'':'none';
   }
-  // During pure forward/backward motion measure top-center screen X;
+  // During pure forward/backward motion measure head-center screen X;
   // during pure strafe measure screen Y. Keep min/max after key release.
-  function updateTransverseGuide(topX,topY){
+  function updateTransverseGuide(headX,headY){
     const movingAxis=movementAxis();
     updateMovementSession(movingAxis);
     let transverseRead='no single-axis session';
     if(transverseExtrema.axis){
       const vertical=transverseExtrema.axis==='vertical';
-      const current=vertical?topX:topY;
+      const current=vertical?headX:headY;
       if(movingAxis===transverseExtrema.axis){
         transverseExtrema.min=Math.min(transverseExtrema.min,current);
         transverseExtrema.max=Math.max(transverseExtrema.max,current);
       }
       const min=transverseExtrema.min,max=transverseExtrema.max;
-      placeTransverseGuide(vertical,topX,topY,min,max,current);
+      placeTransverseGuide(vertical,headX,headY,min,max,current);
       transverseRead=`${vertical?'X':'Y'} ${current.toFixed(1)} px (min ${min.toFixed(1)}, max ${max.toFixed(1)}, drift ${(max-min).toFixed(2)})`;
     }else $('transverseOverlay').style.display='none';
     return transverseRead;
@@ -550,18 +829,23 @@
       `Axis scales: ${(fitX*100).toFixed(0)}% / ${(fitY*100).toFixed(0)}%\n`+
       `Projected centerline: ${heightPx.toFixed(1)} px; angle ${roll.toFixed(1)}°\n`+
       `Local Y extent: ${localHeight.toFixed(1)} / ${H} units\n`+
-      `Top transverse: ${transverseRead}\n`+
+      `Head-center transverse: ${transverseRead}\n`+
       `Mouse: ${document.pointerLockElement===viewport?'locked':'unlocked'}`;
   }
   function render(){
     placeWorld();
+    const projection=cameraProjectionContext();
+    drawGround(projection);
+    const groundContext=groundProjectionContext(projection);
     const view=viewingDirection();
     selectSpriteFrame(view.bearing);
     const pose=spritePlanePose(view);
     const correction=computeLocalCorrection(pose,view);
+    drawSprite(aboveGroundClipPolygon(correction.local));
     applySpritePose(pose,correction);
-    const measurement=measureSprite(pose,correction);
-    const transverseRead=updateTransverseGuide(measurement.topX,measurement.topY);
+    updateUndergroundSprite(pose,correction,groundContext);
+    const measurement=measureSprite(pose,correction,projection);
+    const transverseRead=updateTransverseGuide(measurement.headX,measurement.headY);
     updateControlReadouts();
     updateStats(pose,correction,measurement,transverseRead);
   }
