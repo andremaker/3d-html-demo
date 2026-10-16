@@ -427,9 +427,7 @@
       [columns[0][2],columns[1][2],columns[2][2]]];
   }
   function cssHomographyMatrix3d(homography){
-    const magnitude=Math.max(...homography.flat().map(Math.abs));
-    if(!Number.isFinite(magnitude)||magnitude===0)return 'matrix3d(0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1)';
-    const [[a,b,c],[d,e,f],[g,h,i]]=homography.map(row=>row.map(value=>value/magnitude));
+    const [[a,b,c],[d,e,f],[g,h,i]]=homography;
     return `matrix3d(${a},${d},0,${g},${b},${e},0,${h},0,0,1,0,${c},${f},0,${i})`;
   }
   function groundProjectionContext(projection){
@@ -542,7 +540,7 @@
     if(points.some(p=>!p||!Number.isFinite(p.x+p.y)))return;
     triangle.setAttribute('points',points.map(p=>`${p.x},${p.y}`).join(' '));
     if(!group.querySelector('circle')){
-      const radiusCircle=document.createElementNS('http://www.w3.org/2000/svg','circle');
+      const radiusCircle=document.createElementNS('http\://www.w3.org/2000/svg','circle');
       radiusCircle.setAttribute('fill','none');
       radiusCircle.setAttribute('stroke',color);
       radiusCircle.setAttribute('stroke-width','1.3');
