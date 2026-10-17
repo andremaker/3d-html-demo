@@ -98,7 +98,9 @@
     <div class="toggle-control"><button id="cameraMode" type="button" aria-pressed="false">View: Reference camera</button></div>
     <div class="toggle-control"><button id="resetObserver" type="button">Align observer to reference</button></div>
   </div>
-  <div class="control"><label for="speed">Flight speed <output id="speedRead">280</output></label><input id="speed" type="range" min="80" max="900" step="20" value="280"></div>
+  <div class="control"><label for="maxFlattening">Max flattening <output id="maxFlatteningRead"></output></label><input id="maxFlattening" type="range" min="0" max="100" step="1" value="73"></div>
+  <div class="control"><label for="stretchDistribution">Head / feet split <output id="stretchDistributionRead"></output></label><input id="stretchDistribution" type="range" min="0" max="100" step="1" value="28" aria-label="Stretch offset allocated to the feet; the remainder goes to the head"></div>
+  <div class="control"><label for="speed">Flight speed <output id="speedRead"></output></label><input id="speed" type="range" min="80" max="900" step="20" value="280"></div>
   <div class="presets">
     <button data-preset="horizontal">Horizontal</button>
     <button data-preset="oblique">Oblique</button>
@@ -109,7 +111,7 @@
   <div id="stats">Calculating…</div>
 </section>
 <div id="help"><kbd>W A S D</kbd> move · <kbd>Space</kbd>/<kbd>Shift</kbd> altitude
-  <kbd>Observer</kbd> button switches viewing camera · <kbd>Mouse</kbd> look · <kbd>Arrows</kbd> look · <kbd>Ctrl</kbd> boost · <kbd>R</kbd> reset measurement · <kbd>H</kbd> hide UI · <kbd>Esc</kbd> unlock</div>
+  <kbd>Observer</kbd> button switches viewing camera · <kbd>Mouse</kbd> look · <kbd>Arrows</kbd> look · <kbd>Ctrl</kbd> boost · <kbd>H</kbd> hide UI · <kbd>Esc</kbd> unlock</div>
 <script>
 (() => {
   'use strict';
@@ -118,17 +120,21 @@
   const groundPlane = $('groundPlane');
   const groundCanvas = $('groundCanvas');
   const viewport = $('viewport');
-  const speedEl=$('speed'), debugBoxEl=$('debugBox');
+  const speedEl=$('speed'), maxFlatteningEl=$('maxFlattening');
+  const stretchDistributionEl=$('stretchDistribution'), debugBoxEl=$('debugBox');
   const trianglesEl=$('showTriangles');
   const stats=$('stats'), RAD=Math.PI/180, F=850;
   const W=90,H=180;
   const GROUND_SINK=5; // Local sprite units sunk below the ground plane.
+  const MIN_SPRITE_PLANE_DETERMINANT=0.01;
   const GROUND_PLANE_HALF = groundPlane.offsetWidth / 2;
   const GROUND_GRID = 50;
   const GROUND_MAJOR_GRID = 250;
-  const SPRITE_CROP={x:50,y:42,width:37,height:59,drawY:12,drawHeight:156};
-  const SPRITE_SHEET={width:640,height:129,frameWidth:128};
-  // [head-center X, head-center Y] pixel-bound coordinates in each 37×59 crop.
+  const SPRITE_DRAW_HEIGHT=W*58/34;
+  const SPRITE_CROP={x:0,y:0,width:34,height:58,
+    drawY:(H-SPRITE_DRAW_HEIGHT)/2,drawHeight:SPRITE_DRAW_HEIGHT};
+  const SPRITE_SHEET={width:170,height:58,frameWidth:34};
+  // [head-center X, head-center Y] pixel-bound coordinates in each 34×58 crop.
   const FRAME_CENTERS=[[15.5,7],[18,7],[16.5,9],[16,10],[13.5,8]];
   const spritePivot={x:36.486486,y:141.559322,headX:0,headY:0};
   const PHYSICAL_ANCHORS=[[-W/2,-GROUND_SINK],[W/2,-GROUND_SINK],[0,-H]];
@@ -154,8 +160,6 @@
     button.textContent=observerMode?'View: Observer camera':'View: Reference camera';
     button.setAttribute('aria-pressed',String(observerMode));
   }
-  // Extrema belong to the current single-axis WASD movement session.
-  const transverseExtrema={axis:null,min:Infinity,max:-Infinity};
   const keys=new Set();
   // The canvas displays a directional zombie frame from assets/sprites/.
   // An optional debug grid and frame reveal the raster bounds behind transparent pixels.
@@ -233,7 +237,7 @@
     }
   }
   // Split the source texture where its corresponding physical geometry crosses Y=0.
-  function spriteGroundClipPolygon(submerged){
+  function spriteGroundClipPolygon(submerged,pose){
     const mirror=selectedMirror?-1:1;
     const sourceToPlane=[[mirror,0,selectedMirror?spritePivot.x:-spritePivot.x],
       [0,1,-spritePivot.y],[0,0,1]];
@@ -243,10 +247,8 @@
       sourceToWorld[2][0]*point.x+sourceToWorld[2][1]*point.y+
         sourceToWorld[2][2]);
     polygon=clipPolygonHalfPlane(polygon,point=>{
-      const groundDistance=sourceToWorld[1][0]*point.x+
-        sourceToWorld[1][1]*point.y+sourceToWorld[1][2]+
-        GROUND_SINK*(sourceToWorld[2][0]*point.x+
-          sourceToWorld[2][1]*point.y+sourceToWorld[2][2]);
+      const groundDistance=pose.origin[1]+pose.verticalAxis.y*(sourceToWorld[1][0]*point.x+
+        sourceToWorld[1][1]*point.y+sourceToWorld[1][2]);
       return submerged?groundDistance:-groundDistance;
     });
     polygon=clipPolygonHalfPlane(polygon,point=>point.y-SPRITE_CROP.drawY);
@@ -254,8 +256,8 @@
       SPRITE_CROP.drawY+SPRITE_CROP.drawHeight-point.y);
     return polygon;
   }
-  function undergroundClipPolygon(){return spriteGroundClipPolygon(true)}
-  function aboveGroundClipPolygon(){return spriteGroundClipPolygon(false)}
+  function undergroundClipPolygon(pose){return spriteGroundClipPolygon(true,pose)}
+  function aboveGroundClipPolygon(pose){return spriteGroundClipPolygon(false,pose)}
   function clipPolygonHalfPlane(polygon,signedDistance){
     const clipped=[];
     for(let i=0;i<polygon.length;i++){
@@ -359,8 +361,7 @@
       Math.abs(determinant)<=Number.EPSILON*64*rowProduct)return null;
     return cofactors.map(row=>row.map(value=>value/determinant));
   }
-  function cameraProjectionContext(){
-    const c=screenCamera();
+  function cameraProjectionContext(c=screenCamera()){
     const yaw=c.yaw*RAD,pitch=c.pitch*RAD;
     return {x:c.x,y:c.y,z:c.z,
       sinYaw:Math.sin(yaw),cosYaw:Math.cos(yaw),
@@ -431,7 +432,7 @@
     const sourceToPlane=[[mirror,0,selectedMirror?spritePivot.x:-spritePivot.x],
       [0,1,-spritePivot.y],[0,0,1]];
     const sourceToScreen=multiplyMatrices(
-      characterPlaneProjection(pose.horizontalAxis,groundContext.projection),
+      characterPlaneProjection(pose,groundContext.projection),
       sourceToPlane);
     return multiplyMatrices(groundContext.screenToGround,sourceToScreen);
   }
@@ -441,15 +442,17 @@
   // Project the planar reconstruction of the selected directional artwork.
   // Frame selection determines the horizontal orientation; the scene camera
   // determines the remaining view offset within the frame's angular sector.
-  function characterPlaneProjection(horizontalAxis,projection){
+  function characterPlaneProjection(pose,projection){
     return planeToScreenHomography(
-      [spritePosition.x,GROUND_SINK,spritePosition.z],
-      [horizontalAxis.x,0,horizontalAxis.z],[0,1,0],projection);
+      pose.origin,
+      [pose.horizontalAxis.x,0,pose.horizontalAxis.z],
+      [pose.verticalAxis.x,pose.verticalAxis.y,pose.verticalAxis.z],projection);
   }
   // The lateral, depth and upright components are carried by one 3D matrix.
-  function css3dCharacterMatrix(horizontalAxis){
-    const {x,z}=horizontalAxis;
-    return `matrix3d(${x},0,${z},0,0,1,0,0,${-z},0,${x},0,0,0,0,1)`;
+  function css3dCharacterMatrix(pose){
+    const {x,z}=pose.horizontalAxis, vertical=pose.verticalAxis;
+    const nx=-z*vertical.y,ny=z*vertical.x-x*vertical.z,nz=x*vertical.y;
+    return `matrix3d(${x},0,${z},0,${vertical.x},${vertical.y},${vertical.z},0,${nx},${ny},${nz},0,0,0,0,1)`;
   }
   // Render stages: camera/world placement -> sprite frame -> foot/head anchor pose ->
   // 3D sprite transform -> diagnostics -> UI readouts.
@@ -483,22 +486,112 @@
   // Undo the directional view already encoded by the artwork when placing
   // its frame-local triangle in world space. Within a sector the 3D plane is
   // fixed to that sampled direction, while the camera view varies continuously.
-  function spritePlanePose(frame){
+  // Measure the reference pose in projected pixels so perspective depth changes
+  // are included in the anti-flattening target.
+  function spritePlanePose(frame,projection){
     const yaw=logicalFacingYaw+frame.referenceBearing;
-    const dx=Math.cos(yaw)*W/2,dz=-Math.sin(yaw)*W/2;
-    const left=[spritePosition.x-dx,0,spritePosition.z-dz];
-    const right=[spritePosition.x+dx,0,spritePosition.z+dz];
-    const top=[spritePosition.x,GROUND_SINK-H,spritePosition.z];
-    return {referenceBearing:frame.referenceBearing,anchors:[left,right,top],
-      horizontalAxis:{x:(right[0]-left[0])/W,z:(right[2]-left[2])/W}};
+    const horizontalAxis={x:Math.cos(yaw),z:-Math.sin(yaw)};
+    const dx=camera.x-spritePosition.x,dz=camera.z-spritePosition.z;
+    const radius=Math.hypot(dx,dz);
+    const elevation=Math.atan2(Math.abs(camera.y-spritePosition.y),radius);
+    const maxFlattening=Math.max(0,Math.min(1,Number(maxFlatteningEl.value)/100));
+    const feetShare=Math.max(0,Math.min(1,Number(stretchDistributionEl.value)/100));
+    const anchorSpan=H-GROUND_SINK;
+    const directionX=radius>1e-9?dx/radius:-Math.sin(camera.yaw*RAD);
+    const directionZ=radius>1e-9?dz/radius:Math.cos(camera.yaw*RAD);
+    const alignment=horizontalAxis.x*directionX+horizontalAxis.z*directionZ;
+    const maxAlignment=Math.sqrt(1-MIN_SPRITE_PLANE_DETERMINANT);
+    const maxSinTilt=Math.min(1,maxAlignment/Math.max(Math.abs(alignment),1e-9));
+    const tiltLimit=Math.min(elevation,Math.asin(maxSinTilt));
+    const makePose=tilt=>{
+      const verticalAxis={x:directionX*Math.sin(tilt),y:Math.cos(tilt),
+        z:directionZ*Math.sin(tilt)};
+      const origin=[spritePosition.x+GROUND_SINK*verticalAxis.x,
+        spritePosition.y+GROUND_SINK*verticalAxis.y,
+        spritePosition.z+GROUND_SINK*verticalAxis.z];
+      // Keep the source-model triangle fixed for comparison with the transformed sprite.
+      const anchors=[
+        [spritePosition.x-horizontalAxis.x*W/2,spritePosition.y,
+          spritePosition.z-horizontalAxis.z*W/2],
+        [spritePosition.x+horizontalAxis.x*W/2,spritePosition.y,
+          spritePosition.z+horizontalAxis.z*W/2],
+        [spritePosition.x,spritePosition.y+GROUND_SINK-H,spritePosition.z]
+      ];
+      return {referenceBearing:frame.referenceBearing,origin,verticalAxis,
+        horizontalAxis,anchors,tilt};
+    };
+    // Preserve the original tilt result and divide its head displacement
+    // between the head and feet by translating only the feet's share.
+    const distributeStretch=pose=>{
+      const displacement=[
+        -anchorSpan*pose.verticalAxis.x,
+        anchorSpan*(1-pose.verticalAxis.y),
+        -anchorSpan*pose.verticalAxis.z
+      ];
+      pose.origin=pose.origin.map((value,index)=>
+        value-feetShare*displacement[index]);
+      return pose;
+    };
+    const heightAtTilt=tilt=>measureSprite(makePose(tilt),projection).heightPx;
+    const physicalHeight=heightAtTilt(0);
+    const frontalHeight=heightAtTilt(tiltLimit);
+    if(!Number.isFinite(physicalHeight)||!Number.isFinite(frontalHeight))
+      return distributeStretch(makePose(0));
+    const targetHeight=physicalHeight+(1-maxFlattening)*(frontalHeight-physicalHeight);
+    const idealRetained=1-maxFlattening*(1-Math.cos(elevation));
+    const idealTilt=elevation-Math.acos(Math.max(-1,Math.min(1,idealRetained)));
+    const targetDirection=Math.sign(targetHeight-physicalHeight);
+    if(!targetDirection||!tiltLimit)return distributeStretch(makePose(0));
+    const probe=tiltLimit/64;
+    const positiveChange=Math.sign(heightAtTilt(probe)-physicalHeight);
+    const negativeChange=Math.sign(heightAtTilt(-probe)-physicalHeight);
+    let preferredDirection=Math.sign(idealTilt)||1;
+    if(positiveChange===targetDirection&&negativeChange!==targetDirection)
+      preferredDirection=1;
+    else if(negativeChange===targetDirection&&positiveChange!==targetDirection)
+      preferredDirection=-1;
+    const tilt=findProjectedTilt(targetHeight,physicalHeight,tiltLimit,
+      preferredDirection,heightAtTilt);
+    return distributeStretch(makePose(tilt===null?0:tilt));
+  }
+  function findProjectedTilt(targetHeight,physicalHeight,tiltLimit,direction,heightAtTilt){
+    for(const searchDirection of [direction,-direction]){
+      let previousTilt=0;
+      let previousHeight=physicalHeight;
+      for(let step=1;step<=32;step++){
+        const tilt=searchDirection*tiltLimit*step/32;
+        const height=heightAtTilt(tilt);
+        if(!Number.isFinite(height))continue;
+        if((previousHeight-targetHeight)*(height-targetHeight)<=0){
+          let low=previousTilt;
+          let high=tilt;
+          let lowHeight=previousHeight;
+          for(let iteration=0;iteration<16;iteration++){
+            const middle=(low+high)/2;
+            const middleHeight=heightAtTilt(middle);
+            if(!Number.isFinite(middleHeight))break;
+            if((lowHeight-targetHeight)*(middleHeight-targetHeight)<=0)
+              high=middle;
+            else{
+              low=middle;
+              lowHeight=middleHeight;
+            }
+          }
+          return (low+high)/2;
+        }
+        previousTilt=tilt;
+        previousHeight=height;
+      }
+    }
+    return null;
   }
   function applySpritePose(pose){
-    sprite.style.transform=`translate3d(${spritePosition.x}px,${GROUND_SINK}px,${spritePosition.z}px) `+
-      css3dCharacterMatrix(pose.horizontalAxis);
+    sprite.style.transform=`translate3d(${pose.origin[0]}px,${pose.origin[1]}px,${pose.origin[2]}px) `+
+      css3dCharacterMatrix(pose);
   }
   // Project the clipped source texture onto an independent ground-aligned 3D plane.
   function updateUndergroundSprite(pose,groundContext){
-    const polygon=undergroundClipPolygon();
+    const polygon=undergroundClipPolygon(pose);
     if(polygon.length<3||!groundContext){
       undergroundEl.style.display='none';
       return;
@@ -521,7 +614,7 @@
     $('anchorOverlay').setAttribute('viewBox',`0 0 ${innerWidth} ${innerHeight}`);
     const physicalPoints=pose.anchors.map(([x,y,z])=>projectWorld(x,y,z));
     drawAnchorGroup(physicalGroup,$('physicalTriangle'),physicalPoints,'#ffca69','P',true);
-    const spriteProjection=characterPlaneProjection(pose.horizontalAxis,projection);
+    const spriteProjection=characterPlaneProjection(pose,projection);
     const spritePoints=PHYSICAL_ANCHORS.map(([u,v])=>transform3(spriteProjection,u,v));
     drawAnchorGroup(spriteGroup,$('spriteTriangle'),
       spritePoints.map(p=>p.w>0?{x:p.x,y:p.y}:null),'#54e8ef','S',false);
@@ -566,55 +659,22 @@
   function measureSprite(pose,projection){
     const sourceHead=[(selectedMirror?-1:1)*(spritePivot.headX-spritePivot.x),
       spritePivot.headY-spritePivot.y];
-    const fromSprite=characterPlaneProjection(pose.horizontalAxis,projection);
+    const fromSprite=characterPlaneProjection(pose,projection);
     const head=transform3(fromSprite,...sourceHead);
     const foot=transform3(fromSprite,0,0);
     const headScreen={x:head.x,y:head.y};
     const footScreen={x:foot.x,y:foot.y};
     const heightPx=Math.hypot(headScreen.x-footScreen.x,headScreen.y-footScreen.y);
     const roll=Math.atan2(headScreen.x-footScreen.x,footScreen.y-headScreen.y)/RAD;
-    return {headX:headScreen.x,headY:headScreen.y,heightPx,roll};
-  }
-  // Classify the currently held WASD keys in screen-transverse diagnostics;
-  // diagonal motion cannot define a single measurement axis.
-  function movementAxis(){
-    const f=Number(keys.has('KeyW'))-Number(keys.has('KeyS'));
-    const r=Number(keys.has('KeyD'))-Number(keys.has('KeyA'));
-    return f&&r?'diagonal':f?'vertical':r?'horizontal':null;
-  }
-  // Starting movement on a different single axis resets the extrema.
-  // Diagonal motion cancels the session; releasing all keys retains it.
-  function updateMovementSession(movingAxis){
-    if(movingAxis==='diagonal'){
-      transverseExtrema.axis=null;
-    }else if(movingAxis&&movingAxis!==transverseExtrema.axis){
-      transverseExtrema.axis=movingAxis;
-      transverseExtrema.min=Infinity;
-      transverseExtrema.max=-Infinity;
-    }
-  }
-  // During pure forward/backward motion measure head-center screen X;
-  // during pure strafe measure screen Y. Keep min/max after key release.
-  function updateTransverseMeasurement(headX,headY){
-    const movingAxis=movementAxis();
-    updateMovementSession(movingAxis);
-    let transverseRead='no single-axis session';
-    if(transverseExtrema.axis){
-      const vertical=transverseExtrema.axis==='vertical';
-      const current=vertical?headX:headY;
-      if(movingAxis===transverseExtrema.axis){
-        transverseExtrema.min=Math.min(transverseExtrema.min,current);
-        transverseExtrema.max=Math.max(transverseExtrema.max,current);
-      }
-      const min=transverseExtrema.min,max=transverseExtrema.max;
-      transverseRead=`${vertical?'X':'Y'} ${current.toFixed(1)} px (min ${min.toFixed(1)}, max ${max.toFixed(1)}, drift ${(max-min).toFixed(2)})`;
-    }
-    return transverseRead;
+    return {heightPx,roll};
   }
   function updateControlReadouts(){
     $('speedRead').textContent=speedEl.value;
+    $('maxFlatteningRead').textContent=maxFlatteningEl.value+'%';
+    const feetShare=Number(stretchDistributionEl.value);
+    $('stretchDistributionRead').textContent=`${100-feetShare}% / ${feetShare}%`;
   }
-  function updateStats(pose,measurement,transverseRead){
+  function updateStats(pose,measurement){
     const {heightPx,roll}=measurement;
     const referenceBearing=logicalFacingYaw+pose.referenceBearing;
     const view=screenCamera();
@@ -626,30 +686,28 @@
       `Sprite transform: visual foot/head anchor reconstruction\n`+
       `Selected frame bearing: ${(referenceBearing/RAD).toFixed(1)}°\n`+
       `Projected centerline: ${heightPx.toFixed(1)} px; angle ${roll.toFixed(1)}°\n`+
-      `Head-center transverse: ${transverseRead}\n`+
       `Mouse: ${document.pointerLockElement===viewport?'locked':'unlocked'}`;
   }
   function render(){
     placeWorld();
     const projection=cameraProjectionContext();
+    const referenceProjection=cameraProjectionContext(camera);
     const groundContext=groundProjectionContext(projection);
     const view=viewingDirection();
     const frame=selectSpriteFrame(view.bearing);
-    const pose=spritePlanePose(frame);
-    drawSprite(aboveGroundClipPolygon());
+    const pose=spritePlanePose(frame,referenceProjection);
+    drawSprite(aboveGroundClipPolygon(pose));
     applySpritePose(pose);
     updateUndergroundSprite(pose,groundContext);
     drawAnchorOverlay(pose,projection);
     const measurement=measureSprite(pose,projection);
-    const transverseRead=updateTransverseMeasurement(measurement.headX,measurement.headY);
     updateControlReadouts();
-    updateStats(pose,measurement,transverseRead);
+    updateStats(pose,measurement);
     return {frame,pose,measurement};
   }
   // Input event routing -> camera controls -> frame stepping.
   function usePreset(button){
     Object.assign(controlledCamera(),presets[button.dataset.preset]);
-    transverseExtrema.axis=null;
     button.blur();
   }
   function handlePointerLook(event){
@@ -669,8 +727,6 @@
     if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.code))event.preventDefault();
     keys.add(event.code);
     if(event.code==='KeyH'&&!event.repeat)$('panel').hidden=!$('panel').hidden;
-    // R clears the transverse measurement session.
-    if(event.code==='KeyR'&&!event.repeat){transverseExtrema.axis=null;}
   }
   function bindInputEvents(){
     $('cameraMode').addEventListener('click',()=>{
@@ -742,14 +798,13 @@
       throw new TypeError('Invalid camera snapshot: expected finite position and orientation values.');
     Object.assign(camera,{x:position.x,y:position.y,z:position.z,
       yaw:orientation.yaw,pitch:orientation.pitch});
-    transverseExtrema.axis=null;
     render();
     return snapshotCameraJSON();
   }
   // Expose renderer state for programmatic diagnostics.
   window.snapshotCameraJSON=snapshotCameraJSON;
   window.applyCameraSnapshot=applyCameraSnapshot;
-  window.__labTest={camera,observerCamera,render,topCenter,transverseExtrema,
+  window.__labTest={camera,observerCamera,render,topCenter,
     get observerMode(){return observerMode},
     set observerMode(value){observerMode=Boolean(value);updateCameraButtons()},
     snapshotCameraJSON,applyCameraSnapshot,
