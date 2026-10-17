@@ -33,7 +33,6 @@
   .face .vertical-label {writing-mode:vertical-rl;text-orientation:mixed;white-space:nowrap}
   .foot {position:absolute;width:12px;height:12px;left:-6px;top:-6px;border-radius:50%;
     background:#fff8c5;box-shadow:0 0 15px #fff8c5;transform:rotateX(90deg)}
-  #transverseOverlay {position:fixed;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
   #anchorOverlay {position:fixed;inset:0;width:100%;height:100%;pointer-events:none;
     overflow:visible;z-index:5}
   .anchor-label {font:700 13px/1 ui-monospace,monospace;paint-order:stroke;
@@ -79,12 +78,6 @@
 </head>
 <body>
 <div id="viewport"><div id="scene"><div id="world"><div id="groundPlane"><canvas id="groundCanvas"></canvas></div></div></div></div>
-<svg id="transverseOverlay" aria-label="Head-center transverse position and extrema">
-  <line id="transverseGuide" stroke="#f9ed7b" stroke-width="1.5" stroke-dasharray="2 5"/>
-  <circle id="transverseMinimum" r="5" fill="#72e4d2" stroke="#173041" stroke-width="1"/>
-  <circle id="transverseMaximum" r="5" fill="#ff9a76" stroke="#173041" stroke-width="1"/>
-  <circle id="transverseCurrent" r="3" fill="#fff"/>
-</svg>
 <svg id="anchorOverlay" aria-label="Screen-space sprite and source-model foot and head anchors">
   <g id="physicalAnchorGroup" style="display:none" fill="none" stroke="#ffca69">
     <polygon id="physicalTriangle" stroke-width="2.5" stroke-dasharray="7 5" stroke-linejoin="round"/>
@@ -99,9 +92,6 @@
   <p>Approximates the sprite's foot and head positions from the source 3D model for more natural angles and movement.</p>
   <div class="toggle-row">
     <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="debugBox"><span>Sprite debug box</span></label></div>
-    <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="extrema"><span>Min/max guide</span></label></div>
-  </div>
-  <div class="toggle-row">
     <div class="toggle-control"><label class="toggle-button anchor-guides"><input type="checkbox" id="showTriangles"><span>Foot/head anchor guides</span></label></div>
   </div>
   <div class="toggle-row">
@@ -119,7 +109,7 @@
   <div id="stats">Calculating…</div>
 </section>
 <div id="help"><kbd>W A S D</kbd> move · <kbd>Space</kbd>/<kbd>Shift</kbd> altitude
-  <kbd>Observer</kbd> button switches viewing camera · <kbd>Mouse</kbd> look · <kbd>Arrows</kbd> look · <kbd>Ctrl</kbd> boost · <kbd>R</kbd> clear guide · <kbd>H</kbd> hide UI · <kbd>Esc</kbd> unlock</div>
+  <kbd>Observer</kbd> button switches viewing camera · <kbd>Mouse</kbd> look · <kbd>Arrows</kbd> look · <kbd>Ctrl</kbd> boost · <kbd>R</kbd> reset measurement · <kbd>H</kbd> hide UI · <kbd>Esc</kbd> unlock</div>
 <script>
 (() => {
   'use strict';
@@ -128,7 +118,7 @@
   const groundPlane = $('groundPlane');
   const groundCanvas = $('groundCanvas');
   const viewport = $('viewport');
-  const speedEl=$('speed'), debugBoxEl=$('debugBox'), extremaEl=$('extrema');
+  const speedEl=$('speed'), debugBoxEl=$('debugBox');
   const trianglesEl=$('showTriangles');
   const stats=$('stats'), RAD=Math.PI/180, F=850;
   const W=90,H=180;
@@ -603,27 +593,9 @@
       transverseExtrema.max=-Infinity;
     }
   }
-  function setTransversePoint(id,value,vertical,headX,headY){
-    $(id).setAttribute('cx',vertical?value:headX);
-    $(id).setAttribute('cy',vertical?headY:value);
-  }
-  // Render the min/max/current markers along the transverse screen axis.
-  // The checkbox controls visibility, not whether extrema are measured.
-  function placeTransverseGuide(vertical,headX,headY,min,max,current){
-    const half=Math.max(70,Math.abs(max-min)+16);
-    const guide=$('transverseGuide');
-    guide.setAttribute('x1',vertical?headX-half:headX);
-    guide.setAttribute('y1',vertical?headY:headY-half);
-    guide.setAttribute('x2',vertical?headX+half:headX);
-    guide.setAttribute('y2',vertical?headY:headY+half);
-    setTransversePoint('transverseMinimum',min,vertical,headX,headY);
-    setTransversePoint('transverseMaximum',max,vertical,headX,headY);
-    setTransversePoint('transverseCurrent',current,vertical,headX,headY);
-    $('transverseOverlay').style.display=extremaEl.checked?'':'none';
-  }
   // During pure forward/backward motion measure head-center screen X;
   // during pure strafe measure screen Y. Keep min/max after key release.
-  function updateTransverseGuide(headX,headY){
+  function updateTransverseMeasurement(headX,headY){
     const movingAxis=movementAxis();
     updateMovementSession(movingAxis);
     let transverseRead='no single-axis session';
@@ -635,9 +607,8 @@
         transverseExtrema.max=Math.max(transverseExtrema.max,current);
       }
       const min=transverseExtrema.min,max=transverseExtrema.max;
-      placeTransverseGuide(vertical,headX,headY,min,max,current);
       transverseRead=`${vertical?'X':'Y'} ${current.toFixed(1)} px (min ${min.toFixed(1)}, max ${max.toFixed(1)}, drift ${(max-min).toFixed(2)})`;
-    }else $('transverseOverlay').style.display='none';
+    }
     return transverseRead;
   }
   function updateControlReadouts(){
@@ -670,7 +641,7 @@
     updateUndergroundSprite(pose,groundContext);
     drawAnchorOverlay(pose,projection);
     const measurement=measureSprite(pose,projection);
-    const transverseRead=updateTransverseGuide(measurement.headX,measurement.headY);
+    const transverseRead=updateTransverseMeasurement(measurement.headX,measurement.headY);
     updateControlReadouts();
     updateStats(pose,measurement,transverseRead);
     return {frame,pose,measurement};
