@@ -133,9 +133,10 @@
   const SPRITE_DRAW_HEIGHT=W*58/34;
   const SPRITE_CROP={x:0,y:0,width:34,height:58,
     drawY:(H-SPRITE_DRAW_HEIGHT)/2,drawHeight:SPRITE_DRAW_HEIGHT};
-  const SPRITE_SHEET={width:170,height:58,frameWidth:34};
+  const SPRITE_SHEET={width:272,height:58,frameWidth:34};
   // [head-center X, head-center Y] pixel-bound coordinates in each 34×58 crop.
-  const FRAME_CENTERS=[[15.5,7],[18,7],[16.5,9],[16,10],[13.5,8]];
+  const FRAME_CENTERS=[[13.5,7],[11.5,5.5],[11.5,5],[15,4.5],
+    [17.5,4.5],[20,4.5],[19.5,5.5],[17,7]];
   const spritePivot={x:36.486486,y:141.559322,headX:0,headY:0};
   const PHYSICAL_ANCHORS=[[-W/2,-GROUND_SINK],[W/2,-GROUND_SINK],[0,-H]];
   let logicalFacingYaw=0;
@@ -171,7 +172,7 @@
   undergroundEl.id='undergroundSprite';
   groundPlane.append(undergroundEl);
   const zombieImage=new Image();
-  let selectedDirection=0, selectedMirror=false;
+  let selectedDirection=0;
   let currentAboveGroundPolygon=null;
   let topCenter=null;
   // Draw in order: optional debug background, directional frame, optional border.
@@ -218,7 +219,6 @@
     ctx.restore();
   }
   function updateSpriteFrameAppearance(){
-    img.style.transform=selectedMirror?'scaleX(-1)':'none';
     const scaleX=W/SPRITE_CROP.width,scaleY=SPRITE_CROP.drawHeight/SPRITE_CROP.height;
     undergroundEl.style.backgroundSize=
       `${SPRITE_SHEET.width*scaleX}px ${SPRITE_SHEET.height*scaleY}px`;
@@ -238,8 +238,7 @@
   }
   // Split the source texture where its corresponding physical geometry crosses Y=0.
   function spriteGroundClipPolygon(submerged,pose){
-    const mirror=selectedMirror?-1:1;
-    const sourceToPlane=[[mirror,0,selectedMirror?spritePivot.x:-spritePivot.x],
+    const sourceToPlane=[[1,0,-spritePivot.x],
       [0,1,-spritePivot.y],[0,0,1]];
     const sourceToWorld=sourceToPlane;
     let polygon=[{x:0,y:0},{x:W,y:0},{x:W,y:H},{x:0,y:H}];
@@ -428,8 +427,7 @@
     return screenToGround ? { projection, screenToGround } : null;
   }
   function spriteToGroundHomography(pose,groundContext){
-    const mirror=selectedMirror?-1:1;
-    const sourceToPlane=[[mirror,0,selectedMirror?spritePivot.x:-spritePivot.x],
+    const sourceToPlane=[[1,0,-spritePivot.x],
       [0,1,-spritePivot.y],[0,0,1]];
     const sourceToScreen=multiplyMatrices(
       characterPlaneProjection(pose,groundContext.projection),
@@ -467,17 +465,16 @@
     return {dx,dz,bearing,yaw};
   }
   function spriteFrameForBearing(bearing){
-    // Eight viewing sectors from five source directions; mirror the other three.
+    // Frame zero faces forward; advance one frame per 45-degree viewing sector.
     const normalizedBearing=(((bearing+Math.PI)%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
     const sector=Math.round(normalizedBearing/(Math.PI/4))%8;
-    const direction=sector<=4?sector:8-sector;
-    const mirror=sector>4;
-    return {direction,mirror,referenceBearing:(sector-4)*Math.PI/4};
+    const direction=(sector+4)%8;
+    return {direction,referenceBearing:(sector-4)*Math.PI/4};
   }
   function selectSpriteFrame(bearing){
     const frame=spriteFrameForBearing(bearing-logicalFacingYaw);
-    if(frame.direction!==selectedDirection||frame.mirror!==selectedMirror){
-      selectedDirection=frame.direction;selectedMirror=frame.mirror;
+    if(frame.direction!==selectedDirection){
+      selectedDirection=frame.direction;
       updateSpritePivot(frame.direction);
       updateSpriteFrameAppearance();
     }
@@ -657,7 +654,7 @@
     group.style.display='';
   }
   function measureSprite(pose,projection){
-    const sourceHead=[(selectedMirror?-1:1)*(spritePivot.headX-spritePivot.x),
+    const sourceHead=[spritePivot.headX-spritePivot.x,
       spritePivot.headY-spritePivot.y];
     const fromSprite=characterPlaneProjection(pose,projection);
     const head=transform3(fromSprite,...sourceHead);
