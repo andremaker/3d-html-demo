@@ -1,0 +1,605 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Underground city portal</title>
+<style>
+:root{font:13px/1.4 system-ui,sans-serif;color-scheme:dark;color:#e4eff9;background:#101a29}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden}
+#viewport{position:fixed;inset:0;overflow:hidden;perspective:900px;perspective-origin:50% 50%;background:radial-gradient(ellipse at 50% 25%,#354e68,#122338 55%,#0c1828)}
+#scene{position:absolute;left:50%;top:50%;width:0;height:0;transform:translateZ(900px);transform-style:preserve-3d}
+#world{position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d}
+.zone{position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d}
+.floor{position:absolute;left:-260px;top:-260px;width:520px;height:520px;overflow:hidden;border-radius:50%;transform:rotateX(90deg);transform-origin:50% 50%;transform-style:flat;backface-visibility:visible;box-shadow:0 0 18px #32f6ff55,0 0 34px #f041d233}
+.floor:before,.floor:after{content:"";position:absolute;z-index:2;inset:0;border:7px solid transparent;border-radius:50%;background:conic-gradient(from 0deg,#32f6ff,#2664ff,#f041d2,#ffb64a,#32f6ff) border-box;-webkit-mask:linear-gradient(#fff 0 0) padding-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) padding-box,linear-gradient(#fff 0 0);mask-composite:exclude;pointer-events:none;will-change:transform,opacity}
+.floor:before{opacity:.56;filter:drop-shadow(0 0 9px #4ceaff)}
+.floor:after{inset:0;border-width:16px;opacity:.5;background:radial-gradient(ellipse at 0% 50%,#32f6ff 0%,#32f6ff99 9%,transparent 32%),radial-gradient(ellipse at 100% 18%,#f041d2 0%,#f041d299 10%,transparent 34%),radial-gradient(ellipse at 82% 100%,#ffb64a 0%,#ffb64a99 9%,transparent 32%),radial-gradient(ellipse at 12% 100%,#2664ff 0%,#2664ff99 10%,transparent 34%);background-size:170% 150%,160% 180%,180% 160%,160% 170%;background-position:0% 50%,100% 18%,82% 100%,12% 100%;filter:blur(12px) drop-shadow(0 0 13px #f041d2) drop-shadow(0 0 12px #32f6ff88);animation:portal-plasma-fog 23s ease-in-out infinite}
+@keyframes portal-plasma-fog{
+ 0%,100%{opacity:.62;transform:scale(.98) rotate(-1deg);background-position:0% 50%,100% 18%,82% 100%,12% 100%}
+ 14%{opacity:.92;transform:scale(1.01) rotate(2deg);background-position:24% 31%,78% 0%,63% 82%,0% 72%}
+ 31%{opacity:.5;transform:scale(.99) rotate(-2deg);background-position:57% 9%,44% 22%,100% 57%,18% 38%}
+ 49%{opacity:.95;transform:scale(1.02) rotate(1deg);background-position:83% 36%,15% 49%,66% 18%,52% 0%}
+ 68%{opacity:.56;transform:scale(.98) rotate(3deg);background-position:63% 76%,0% 83%,26% 42%,100% 29%}
+ 84%{opacity:.86;transform:scale(1.01) rotate(-2deg);background-position:28% 92%,38% 100%,0% 74%,67% 85%}
+}
+@media(prefers-reduced-motion:reduce){.floor:before,.floor:after{animation:none}}
+.floorGrid{position:absolute;inset:0;pointer-events:none;background-color:#243b45;background-image:linear-gradient(#82a9a533 1px,transparent 1px),linear-gradient(90deg,#82a9a533 1px,transparent 1px),linear-gradient(#82a9a55c 2px,transparent 2px),linear-gradient(90deg,#82a9a55c 2px,transparent 2px);background-size:26px 26px,26px 26px,130px 130px,130px 130px}
+.floorHeading{position:absolute;left:18px;top:16px;font:800 19px/1.2 system-ui,sans-serif;letter-spacing:.035em;color:#d4f6ff;text-shadow:0 1px 2px #001725;pointer-events:none}
+.floorHeading span{display:block;font-size:11px;letter-spacing:.02em;font-weight:500;color:#b0cbd0;margin-top:3px}
+.floor iframe{position:absolute;z-index:1;inset:0;width:100%;height:100%;border:0;border-radius:50%;display:block;background:transparent;pointer-events:none;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.art{position:absolute;width:122px;height:202px;left:-61px;top:-101px;transform-origin:50% 50%;backface-visibility:visible;will-change:transform}
+.floor .art{left:199px;top:159px}
+.artSkin{position:absolute;inset:0;overflow:hidden;border:4px solid #c9aa61;background:radial-gradient(ellipse at 50% 40%,#1a3b46,#0b1c27 72%);box-shadow:inset 0 0 0 2px #213846,0 0 0 1px #121826}
+.artSkin:before{content:"";position:absolute;z-index:0;inset:7px;border:1px solid #53e8de55;box-shadow:inset 0 0 14px #35cdd733}
+.artSkin:after{content:"";position:absolute;z-index:2;inset:0;background:linear-gradient(120deg,#ffffff11,transparent 32%,transparent 65%,#42eaff10);pointer-events:none}
+.cardHeader,.cardFooter{position:absolute;z-index:1;left:11px;right:11px;display:flex;justify-content:space-between;align-items:center;color:#d8faff;font:700 6px/1 ui-monospace,monospace;letter-spacing:.06em;text-shadow:0 0 5px #42eaff88}
+.cardHeader{top:13px;padding-bottom:7px;border-bottom:1px solid #4de5d788}
+.cardHeader strong{font-size:8px;color:#f2d38b}
+.cardFooter{bottom:11px;padding-top:7px;border-top:1px solid #4de5d788;color:#8fccc9;font-size:5px}
+.cardTrace{position:absolute;z-index:1;border-color:#42eaff;border-style:solid;opacity:.8;filter:drop-shadow(0 0 3px #42eaff)}
+.cardTrace:after{content:"";position:absolute;width:4px;height:4px;border:1px solid #ffe098;border-radius:50%;background:#eebc64;box-shadow:0 0 5px #42eaff}
+.cardTraceA{left:13px;top:66px;width:31px;height:39px;border-width:1px 1px 0 0;border-radius:0 8px 0 0}
+.cardTraceA:after{right:-3px;bottom:-2px}
+.cardTraceB{right:13px;top:74px;width:32px;height:38px;border-width:0 0 1px 1px;border-radius:0 0 0 8px}
+.cardTraceB:after{left:-3px;top:-2px}
+.cardTraceC{left:13px;bottom:37px;width:26px;height:17px;border-width:0 1px 1px 0;border-radius:0 0 7px 0}
+.cardTraceC:after{right:-3px;top:-2px}
+.cardTraceD{right:13px;bottom:37px;width:26px;height:17px;border-width:1px 0 0 1px;border-radius:7px 0 0 0}
+.cardTraceD:after{left:-3px;bottom:-2px}
+.cardChip{position:absolute;z-index:1;left:50%;top:50%;width:40px;height:48px;transform:translate(-50%,-50%);border:2px solid #e7bd6a;border-radius:3px;background:repeating-linear-gradient(90deg,transparent 0 4px,#dfb766 4px 5px,transparent 5px 7px) top/100% 5px no-repeat,repeating-linear-gradient(90deg,transparent 0 4px,#dfb766 4px 5px,transparent 5px 7px) bottom/100% 5px no-repeat,#162a34;box-shadow:0 0 9px #45dfe277,inset 0 0 8px #42eaff33}
+.cardChip:before{content:"";position:absolute;inset:6px 5px;border:1px solid #43dce1;background:linear-gradient(135deg,#214b56,#10212c);box-shadow:inset 0 0 7px #42eaff66}
+.cardChip:after{content:"IC";position:absolute;inset:0;display:grid;place-items:center;color:#f6d78f;font:900 12px/1 ui-monospace,monospace;text-shadow:0 0 6px #42eaff}
+.cardContacts{position:absolute;z-index:1;left:23px;right:23px;bottom:28px;height:5px;background:repeating-linear-gradient(90deg,#d9b56a 0 7px,#655333 7px 9px,transparent 9px 12px);box-shadow:0 0 5px #e5c36e66}
+.original{pointer-events:none}
+#ui{position:fixed;left:16px;top:16px;bottom:16px;width:min(350px,calc(100vw - 32px));overflow:auto;background:#0e2032df;border:1px solid #8eabb850;border-radius:13px;backdrop-filter:blur(10px);padding:16px;box-shadow:0 10px 40px #0005}
+h1{font-size:17px;margin:0 0 6px}
+p{margin:0 0 12px;color:#adc3d4;font-size:12px}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px}
+.control{display:flex;flex-direction:column;gap:3px}
+.control label{display:flex;justify-content:space-between;gap:5px;font-size:11px;color:#d2e7f4}
+.control output{font-variant-numeric:tabular-nums;color:#f6c17d;font-weight:800}
+input[type=range]{width:100%;accent-color:#f6b36b}
+fieldset{padding:9px 10px;border:1px solid #6c98ae44;border-radius:9px;margin:10px 0 0}
+legend{color:#e6f3fd;font-weight:700;font-size:12px;padding:0 5px}
+.toggles{display:flex;flex-wrap:wrap;gap:5px 13px;font-size:11px}
+.toggles label{display:flex;gap:5px;align-items:center}
+.buttons{display:flex;flex-wrap:wrap;gap:6px;margin:9px 0}
+button{cursor:pointer;background:#294558;color:#eaf7fb;border:1px solid #6d9aaa55;border-radius:5px;padding:5px 9px;font-size:12px}
+button:hover{background:#35627a}
+#stats{white-space:pre-wrap;font:11px/1.5 ui-monospace,monospace;color:#bad5df;margin-top:12px;border-top:1px solid #50708988;padding-top:9px}
+#overlay{position:fixed;inset:0;pointer-events:none;width:100%;height:100%}
+#help{position:fixed;right:15px;bottom:15px;padding:9px 12px;border:1px solid #8299a966;border-radius:8px;background:#101d2adf;color:#d2e5f0;font-size:11px}
+#help kbd{border:1px solid #eee7;border-radius:3px;padding:0 3px}
+#ui[hidden],#help[hidden]{display:none}
+</style>
+</head>
+<body>
+<div id="viewport"><div id="scene"><div id="world">
+ <div class="zone" id="iframeZone">
+   <div class="floor" id="iframeFloor"><div class="floorGrid"></div><iframe id="innerIframe" title="Cyberpunk city portal projection" scrolling="no"></iframe></div>
+   <div class="art original" id="iframeOriginal"><div class="artSkin"><div class="cardHeader"><strong>▲ TOP / 07</strong><span>NEON PASS</span></div><div class="cardTrace cardTraceA"></div><div class="cardTrace cardTraceB"></div><div class="cardTrace cardTraceC"></div><div class="cardTrace cardTraceD"></div><div class="cardChip"></div><div class="cardContacts"></div><div class="cardFooter"><span>ACCESS NODE</span><span>0427 / SECURE</span></div></div></div>
+ </div>
+</div></div></div>
+<aside id="ui">
+ <h1>Underground city portal</h1>
+ <p>A rounded plasma gate looks 50 m down onto a cyberpunk city. Twenty 20–40 m towers rise from a textured floor toward the viewer. The surrounding 3D scene stays in place.</p>
+ <fieldset><legend>Camera</legend><div class="controls">
+  <div class="control"><label>Flight speed <output id="speedValue"></output></label><input id="speed" type="range" min="80" max="900" step="20" value="300"></div>
+ </div><div class="buttons"><button data-camera="front">Front</button><button data-camera="oblique">Oblique</button><button data-camera="top">Above ground</button><button data-camera="below">Below ground</button><button data-camera="side">Side</button><button id="resetCamera">Reset</button></div></fieldset>
+ <fieldset><legend>Inclined panel</legend><div class="controls">
+  <div class="control"><label>Rotate X <output id="rxValue"></output></label><input id="rx" type="range" min="-85" max="85" value="27"></div>
+  <div class="control"><label>Rotate Y <output id="ryValue"></output></label><input id="ry" type="range" min="-180" max="180" value="32"></div>
+  <div class="control"><label>Rotate Z <output id="rzValue"></output></label><input id="rz" type="range" min="-85" max="85" value="-24"></div>
+  <div class="control"><label>Center height <output id="heightValue"></output></label><input id="height" type="range" min="-100" max="100" step="1" value="-15"></div>
+ </div><div class="buttons"><button id="resetObject">Reset panel</button></div></fieldset>
+ <div id="stats"></div>
+</aside>
+<div id="help"><kbd>W A S D</kbd> move · <kbd>Space</kbd>/<kbd>Shift</kbd> altitude · <kbd>Mouse</kbd> look (click to lock) · <kbd>Arrows</kbd> look · <kbd>Ctrl</kbd> boost · <kbd>H</kbd> hide UI · <kbd>Esc</kbd> unlock</div>
+<script>
+(()=>{
+'use strict';
+const $=id=>document.getElementById(id), RAD=Math.PI/180;
+const FLOOR=520, PANEL_W=122, PANEL_H=202, F=900;
+const CITY_PIXELS_PER_METER=10;
+const CITY_FLOOR_Z=-50*CITY_PIXELS_PER_METER;
+window.WINDOW_LIGHT_FREQUENCY=40; // Higher values make pane changes happen more often.
+const config={x:0,y:-1050*Math.sin(47*RAD),z:1050*Math.cos(47*RAD),yaw:0,pitch:47,speed:300,rx:27,ry:32,rz:-24,height:-15};
+const stage={zone:$('iframeZone'),original:$('iframeOriginal'),floor:$('iframeFloor')};
+const iframe=$('innerIframe');
+const buildingHeights=[22,31,38,27,35,24,34,29,40,26,32,23,37,28,39,21,33,25,36,30];
+const buildingRows=[
+ {y:-180,x:[-224,-112,0,112,224],width:62,depth:54},
+ {y:-60,x:[-224,-112,0,112,224],width:66,depth:58},
+ {y:60,x:[-224,-112,0,112,224],width:70,depth:62},
+ {y:180,x:[-224,-112,0,112,224],width:74,depth:66}
+];
+const buildingLights=['#42eaff','#fa4fce','#9e8bff','#ffc45c'];
+const buildingPositionSwaps=new Map([[4,11],[11,4],[8,14],[14,8]]);
+const obeliskBuildings=new Set([8,14]);
+const helipadBuildings=new Set([6,9]);
+const stairAccessBuildings=new Set([0,11,18]);
+const cityStreets=[];
+const citySidewalks=[];
+const cityCrosswalks=[];
+function createStreet(orientation,x,y,width,height){
+ return `<div class="cityStreet ${orientation}" style="left:calc(50% + ${x}px);top:calc(50% + ${y}px);width:${width}px;height:${height}px;transform:translate(-50%,-50%) translateZ(${CITY_FLOOR_Z+1}px)"></div>`;
+}
+function createSidewalk(orientation,x,y,width,height,edge){
+ return `<div class="citySidewalk ${orientation} ${edge}" style="left:calc(50% + ${x}px);top:calc(50% + ${y}px);width:${width}px;height:${height}px;transform:translate(-50%,-50%) translateZ(${CITY_FLOOR_Z+1}px)"></div>`;
+}
+function createCrosswalk(orientation,x,y,width,height){
+ return `<div class="cityCrosswalk ${orientation}" style="left:calc(50% + ${x}px);top:calc(50% + ${y}px);width:${width}px;height:${height}px;transform:translate(-50%,-50%) translateZ(${CITY_FLOOR_Z+1.2}px)"></div>`;
+}
+const verticalStreetX=[-168,-56,56,168];
+const horizontalStreetY=[-120,0,120];
+for(const x of verticalStreetX){
+ cityStreets.push(createStreet('vertical',x,0,18,460));
+ citySidewalks.push(createSidewalk('vertical',x-13,0,8,460,'road-left'));
+ citySidewalks.push(createSidewalk('vertical',x+13,0,8,460,'road-right'));
+}
+for(const y of horizontalStreetY){
+ cityStreets.push(createStreet('horizontal',0,y,520,18));
+ citySidewalks.push(createSidewalk('horizontal',0,y-15,520,12,'road-north'));
+ citySidewalks.push(createSidewalk('horizontal',0,y+15,520,12,'road-south'));
+}
+for(const x of verticalStreetX){
+ for(const y of horizontalStreetY){
+  cityCrosswalks.push(createCrosswalk('vertical',x,y-21,18,24));
+  cityCrosswalks.push(createCrosswalk('vertical',x,y+21,18,24));
+  cityCrosswalks.push(createCrosswalk('horizontal',x-21,y,24,18));
+  cityCrosswalks.push(createCrosswalk('horizontal',x+21,y,24,18));
+ }
+}
+const cityBuildings=[];
+const windowLightColors=['#8cfaff','#ff78dc','#ffe09a','#83ffc7'];
+const windowLightFaces=[];
+function renderWindowTexture(face){
+ const runsAlongVertical=face.vertical;
+ const paneWidth=runsAlongVertical?12:8;
+ const paneHeight=runsAlongVertical?8:12;
+ const stepX=runsAlongVertical?21:16;
+ const stepY=runsAlongVertical?16:21;
+ const windows=[];
+ let paneIndex=0;
+ for(let y=5;y+paneHeight<face.height-5;y+=stepY){
+  for(let x=5;x+paneWidth<face.width-5;x+=stepX){
+   const isLit=face.windows[paneIndex].lit;
+   const colorIndex=face.windows[paneIndex].colorIndex;
+   const color=isLit?windowLightColors[colorIndex]:'#091623';
+   windows.push('<rect x="'+x+'" y="'+y+'" width="'+paneWidth+'" height="'+paneHeight+'" rx="1" fill="'+color+'" stroke="#06111d" stroke-width="1"/>');
+   paneIndex++;
+  }
+ }
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+face.width+'px" height="'+face.height+'px" viewBox="0 0 '+face.width+' '+face.height+'">'+windows.join('')+'</svg>';
+ return "url('data:image/svg+xml,"+encodeURIComponent(svg)+"')";
+}
+function createWindowTexture(name,width,height){
+ const runsAlongVertical=['buildingLeft','buildingRight'].includes(name);
+ const paneWidth=runsAlongVertical?12:8;
+ const paneHeight=runsAlongVertical?8:12;
+ const stepX=runsAlongVertical?21:16;
+ const stepY=runsAlongVertical?16:21;
+ const face={id:windowLightFaces.length,width,height,vertical:runsAlongVertical,windows:[]};
+ for(let y=5;y+paneHeight<height-5;y+=stepY){
+  for(let x=5;x+paneWidth<width-5;x+=stepX){
+   face.windows.push({
+    lit:Math.random()<.34,
+    colorIndex:Math.floor(Math.random()*windowLightColors.length)
+   });
+  }
+ }
+ windowLightFaces.push(face);
+ return {id:face.id,image:renderWindowTexture(face)};
+}
+function createBuildingFace(name,width,height,color,x,y,z,rotation,clipPath=''){
+ const transform=`translate3d(${x}px,${y}px,${z}px) ${rotation}`;
+ const hasWindows=['buildingFront','buildingBack','buildingLeft','buildingRight'].includes(name);
+ const windowTexture=hasWindows?createWindowTexture(name,width,height):null;
+ const windowPattern=windowTexture?`--window-pattern:${windowTexture.image};`:'';
+ const windowFace=windowTexture?`data-window-face="${windowTexture.id}"`:'';
+ const clip=clipPath?`clip-path:${clipPath};`:'';
+ return `<span class="buildingFace ${name}" ${windowFace} style="${windowPattern}width:${width}px;height:${height}px;left:${-width/2}px;top:${-height/2}px;${clip}transform:${transform};background:${color}"></span>`;
+}
+function createRoofSurface(name,width,height,color,x,y,z,rotation,clipPath=''){
+ const transform=`translate3d(${x}px,${y}px,${z}px) ${rotation}`;
+ const clip=clipPath?`clip-path:${clipPath};`:'';
+ return `<span class="roofSurface ${name}" style="width:${width}px;height:${height}px;left:${-width/2}px;top:${-height/2}px;transform:${transform};background:${color};${clip}"></span>`;
+}
+function createBuildingDetail(name,width,height,x,y,z,rotation,accent,label=''){
+ const transform=`translate3d(${x}px,${y}px,${z}px) ${rotation}`;
+ return `<span class="${name}" data-label="${label}" style="--detail-accent:${accent};width:${width}px;height:${height}px;left:${-width/2}px;top:${-height/2}px;transform:${transform}"></span>`;
+}
+function createObeliskFaces(width,depth,height,color,label){
+ const topWidth=width*.42;
+ const topDepth=depth*.42;
+ const shaftHeight=Math.round(height*.76);
+ const capRise=height-shaftHeight;
+ const halfWidth=width/2;
+ const halfDepth=depth/2;
+ const widthInset=(width-topWidth)/2;
+ const depthInset=(depth-topDepth)/2;
+ const widthInsetPercent=widthInset/width*100;
+ const depthInsetPercent=depthInset/depth*100;
+ const frontAngle=Math.atan2(depthInset,shaftHeight)/RAD;
+ const sideAngle=Math.atan2(widthInset,shaftHeight)/RAD;
+ const frontSlant=Math.hypot(shaftHeight,depthInset);
+ const sideSlant=Math.hypot(shaftHeight,widthInset);
+ const faces=[
+  createBuildingFace('buildingFront',width,frontSlant,'#34475e',0,-(depth+topDepth)/4,shaftHeight/2,`rotateX(${90-frontAngle}deg)`,`polygon(0 0,100% 0,${100-widthInsetPercent}% 100%,${widthInsetPercent}% 100%)`),
+  createBuildingFace('buildingBack',width,frontSlant,'#17263b',0,(depth+topDepth)/4,shaftHeight/2,`rotateX(${-90+frontAngle}deg)`,`polygon(${widthInsetPercent}% 0,${100-widthInsetPercent}% 0,100% 100%,0 100%)`),
+  createBuildingFace('buildingLeft',sideSlant,depth,'#263b54',-(width+topWidth)/4,0,shaftHeight/2,`rotateY(${-90+sideAngle}deg)`,`polygon(0 0,0 100%,100% ${100-depthInsetPercent}%,100% ${depthInsetPercent}%)`),
+  createBuildingFace('buildingRight',sideSlant,depth,'#142237',(width+topWidth)/4,0,shaftHeight/2,`rotateY(${90-sideAngle}deg)`,`polygon(0 ${depthInsetPercent}%,0 ${100-depthInsetPercent}%,100% 100%,100% 0)`)
+ ];
+ const screenZ=shaftHeight*.58;
+ const screenRatio=screenZ/shaftHeight;
+ const screenHeight=52;
+ const screenWidth=Math.min(44,(width-widthInset*2*screenRatio)*.78);
+ const sideScreenWidth=Math.min(40,(depth-depthInset*2*screenRatio)*.78);
+ const screenDepthOffset='translateZ(1px)';
+ faces.push(createBuildingDetail('buildingScreen',screenWidth,screenHeight,0,-halfDepth+depthInset*screenRatio,screenZ,`rotateX(${90-frontAngle}deg) ${screenDepthOffset}`,color,label));
+ faces.push(createBuildingDetail('buildingScreen',screenWidth,screenHeight,0,halfDepth-depthInset*screenRatio,screenZ,`rotateX(${-90+frontAngle}deg) ${screenDepthOffset}`,color,label));
+ faces.push(createBuildingDetail('buildingScreen',sideScreenWidth,screenHeight,-halfWidth+widthInset*screenRatio,0,screenZ,`rotateY(${-90+sideAngle}deg) rotateZ(90deg) ${screenDepthOffset}`,color,label));
+ faces.push(createBuildingDetail('buildingScreen',sideScreenWidth,screenHeight,halfWidth-widthInset*screenRatio,0,screenZ,`rotateY(${90-sideAngle}deg) rotateZ(-90deg) ${screenDepthOffset}`,color,label));
+ const frontCapAngle=Math.atan2(topDepth/2,capRise)/RAD;
+ const sideCapAngle=Math.atan2(topWidth/2,capRise)/RAD;
+ const frontCapSlant=Math.hypot(capRise,topDepth/2);
+ const sideCapSlant=Math.hypot(capRise,topWidth/2);
+ const capZ=shaftHeight+capRise/2;
+ faces.push(createRoofSurface('obeliskFacet',topWidth,frontCapSlant,'#26394c',0,-topDepth/4,capZ,`rotateX(${90-frontCapAngle}deg)`,'polygon(0 0,100% 0,50% 100%)'));
+ faces.push(createRoofSurface('obeliskFacet',topWidth,frontCapSlant,'#40536a',0,topDepth/4,capZ,`rotateX(${-90+frontCapAngle}deg)`,'polygon(50% 0,100% 100%,0 100%)'));
+ faces.push(createRoofSurface('obeliskFacet',sideCapSlant,topDepth,'#344b62',-topWidth/4,0,capZ,`rotateY(${-90+sideCapAngle}deg)`,'polygon(0 0,0 100%,100% 50%)'));
+ faces.push(createRoofSurface('obeliskFacet',sideCapSlant,topDepth,'#1c2d40',topWidth/4,0,capZ,`rotateY(${90-sideCapAngle}deg)`,'polygon(0 50%,100% 100%,100% 0)'));
+ return faces;
+}
+function createRoofStairRoom(x,y,z){
+ const width=28;
+ const depth=24;
+ const height=18;
+ const halfWidth=width/2;
+ const halfDepth=depth/2;
+ const halfHeight=height/2;
+ return [
+  createRoofSurface('stairRoomWall',width,height,'#33485d',x,y-halfDepth,z+halfHeight,'rotateX(90deg)'),
+  createRoofSurface('stairRoomWall',width,height,'#1c2b3e',x,y+halfDepth,z+halfHeight,'rotateX(-90deg)'),
+  createRoofSurface('stairRoomSide',height,depth,'#263b54',x-halfWidth,y,z+halfHeight,'rotateY(-90deg)'),
+  createRoofSurface('stairRoomSide',height,depth,'#17263b',x+halfWidth,y,z+halfHeight,'rotateY(90deg)'),
+  createRoofSurface('stairRoomRoof',width,depth,'#456076',x,y,z+height,'rotateY(0deg)'),
+  createBuildingDetail('buildingEntrance',10,14,x,y-halfDepth-1,z+7,'rotateX(90deg)','#42eaff')
+ ];
+}
+for(const row of buildingRows){
+ for(const centerX of row.x){
+  const index=cityBuildings.length;
+  const positionIndex=buildingPositionSwaps.get(index)??index;
+  const positionRow=buildingRows[Math.floor(positionIndex/5)];
+  const buildingX=positionRow.x[positionIndex%5];
+  const height=buildingHeights[index];
+  const width=row.width+(index%2)*4;
+  const depth=row.depth+(index%3)*4;
+  const halfWidth=width/2;
+  const halfDepth=depth/2;
+  const buildingHeight=height*CITY_PIXELS_PER_METER;
+  const halfHeight=buildingHeight/2;
+  const color=buildingLights[index%buildingLights.length];
+  const roofType=obeliskBuildings.has(index)?'obelisk':'flat';
+  const label=`N-${String(index+1).padStart(2,'0')}`;
+  const faces=[
+   createBuildingFace('buildingBottom',width,depth,'#101a2b',0,0,0,'rotateY(180deg)')
+  ];
+  if(roofType==='obelisk'){
+   faces.push(...createObeliskFaces(width,depth,buildingHeight,color,label));
+   if(index===8){
+    faces.push(createBuildingDetail('obeliskBeacon',14,14,0,0,buildingHeight+3,'rotateY(0deg)','#ff4968'));
+   }
+  }else{
+   faces.push(
+    createBuildingFace('buildingLeft',buildingHeight,depth,'#263b54',-halfWidth,0,halfHeight,'rotateY(-90deg)'),
+    createBuildingFace('buildingRight',buildingHeight,depth,'#142237',halfWidth,0,halfHeight,'rotateY(90deg)'),
+    createBuildingFace('buildingFront',width,buildingHeight,'#34475e',0,-halfDepth,halfHeight,'rotateX(90deg)'),
+    createBuildingFace('buildingBack',width,buildingHeight,'#17263b',0,halfDepth,halfHeight,'rotateX(-90deg)')
+   );
+   faces.push(createBuildingFace('buildingTop',width,depth,color,0,0,buildingHeight,'rotateY(0deg)'));
+   if(helipadBuildings.has(index)){
+    faces.push(createBuildingDetail('helipad',42,42,0,0,buildingHeight+2,'rotateY(0deg)','#75f7ff','H'));
+   }
+   if(stairAccessBuildings.has(index)){
+    faces.push(...createRoofStairRoom(0,0,buildingHeight+1));
+   }
+  }
+  if(roofType!=='obelisk'&&index%3===0){
+   faces.push(createBuildingDetail('buildingScreen',24,16,0,-halfDepth-1,buildingHeight*.68,'rotateX(90deg)',color,label));
+   if(index%2===0){
+    faces.push(createBuildingDetail('buildingScreen',24,16,0,halfDepth+1,buildingHeight*.68,'rotateX(-90deg)',color,label));
+   }
+  }
+  if(index%4===0){
+   const entranceY=index%8===0?-halfDepth-1:halfDepth+1;
+   const entranceRotation=entranceY<0?'rotateX(90deg)':'rotateX(-90deg)';
+   faces.push(createBuildingDetail('buildingEntrance',16,25,0,entranceY,13,entranceRotation,'#ffb56b'));
+  }
+  cityBuildings.push(`<div class="building" data-height="${height} m" data-roof="${roofType}" style="left:calc(50% + ${buildingX}px);top:calc(50% + ${positionRow.y}px);transform:translateZ(${CITY_FLOOR_Z}px)">${faces.join('')}</div>`);
+ }
+}
+const portalMarkup=`<div class="portalScene"><div class="portalSky"></div><div class="cityWorld"><div class="cityGround"></div>${citySidewalks.join('')}${cityStreets.join('')}${cityCrosswalks.join('')}${cityBuildings.join('')}<div id="scene"><div class="art" id="copy"><div class="artSkin"><div class="cardHeader"><strong>▲ TOP / 07</strong><span>NEON PASS</span></div><div class="cardTrace cardTraceA"></div><div class="cardTrace cardTraceB"></div><div class="cardTrace cardTraceC"></div><div class="cardTrace cardTraceD"></div><div class="cardChip"></div><div class="cardContacts"></div><div class="cardFooter"><span>ACCESS NODE</span><span>0427 / SECURE</span></div></div></div></div></div><div class="cityLabel">NEON DISTRICT<span>50 M BELOW SURFACE · 20 TOWERS</span></div></div>`;
+const windowFaceData=windowLightFaces.map(face=>({
+ id:face.id,
+ width:face.width,
+ height:face.height,
+ vertical:face.vertical,
+ states:face.windows.map(window=>`${window.lit?'1':'0'}${window.colorIndex}`).join('')
+}));
+const iframeDoc=`<!doctype html><html><head><meta charset="utf-8"><style>
+html,body{position:relative;margin:0;width:100%;height:100%;overflow:hidden;background:#091421}
+*{box-sizing:border-box}
+.heading{position:absolute;z-index:5;left:18px;top:16px;font:800 19px/1.2 system-ui,sans-serif;letter-spacing:.035em;color:#d4f6ff;text-shadow:0 1px 2px #001725;pointer-events:none}.heading span{display:block;font-size:11px;letter-spacing:.02em;font-weight:500;color:#b0cbd0;margin-top:3px}
+.portalScene{position:absolute;z-index:0;inset:0;overflow:hidden;background:#101a2c;perspective:${F}px;perspective-origin:50% 50%}
+.portalSky{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 55%,#d43b8c55,transparent 42%),radial-gradient(ellipse at 24% 45%,#14d5e944,transparent 38%),linear-gradient(180deg,#10192f 0%,#1b2c45 52%,#071420 100%)}
+.cityWorld{position:absolute;inset:0;transform-style:preserve-3d;transform-origin:50% 50%}
+.cityGround{position:absolute;left:50%;top:50%;width:1800px;height:1800px;margin-left:-900px;margin-top:-900px;transform:translateZ(${CITY_FLOOR_Z}px);background-color:#081823;background-image:linear-gradient(90deg,transparent 49.6%,#54edff77 49.9%,#54edff77 50.1%,transparent 50.4%),repeating-linear-gradient(0deg,#39dce844 0 1px,transparent 1px 42px),repeating-linear-gradient(90deg,#39dce833 0 1px,transparent 1px 52px),repeating-linear-gradient(0deg,transparent 0 167px,#ec49ca55 167px 169px,transparent 169px 334px)}
+#scene{position:absolute;inset:0;transform-style:preserve-3d}
+.art{position:absolute;left:0;top:0;width:122px;height:202px;transform-origin:0 0;backface-visibility:visible}
+.artSkin{position:absolute;inset:0;overflow:hidden;border:4px solid #c9aa61;background:radial-gradient(ellipse at 50% 40%,#1a3b46,#0b1c27 72%);box-shadow:inset 0 0 0 2px #213846,0 0 0 1px #121826}
+.artSkin:before{content:"";position:absolute;z-index:0;inset:7px;border:1px solid #53e8de55;box-shadow:inset 0 0 14px #35cdd733}
+.artSkin:after{content:"";position:absolute;z-index:2;inset:0;background:linear-gradient(120deg,#ffffff11,transparent 32%,transparent 65%,#42eaff10);pointer-events:none}
+.cardHeader,.cardFooter{position:absolute;z-index:1;left:11px;right:11px;display:flex;justify-content:space-between;align-items:center;color:#d8faff;font:700 6px/1 ui-monospace,monospace;letter-spacing:.06em;text-shadow:0 0 5px #42eaff88}
+.cardHeader{top:13px;padding-bottom:7px;border-bottom:1px solid #4de5d788}
+.cardHeader strong{font-size:8px;color:#f2d38b}
+.cardFooter{bottom:11px;padding-top:7px;border-top:1px solid #4de5d788;color:#8fccc9;font-size:5px}
+.cardTrace{position:absolute;z-index:1;border-color:#42eaff;border-style:solid;opacity:.8;filter:drop-shadow(0 0 3px #42eaff)}
+.cardTrace:after{content:"";position:absolute;width:4px;height:4px;border:1px solid #ffe098;border-radius:50%;background:#eebc64;box-shadow:0 0 5px #42eaff}
+.cardTraceA{left:13px;top:66px;width:31px;height:39px;border-width:1px 1px 0 0;border-radius:0 8px 0 0}
+.cardTraceA:after{right:-3px;bottom:-2px}
+.cardTraceB{right:13px;top:74px;width:32px;height:38px;border-width:0 0 1px 1px;border-radius:0 0 0 8px}
+.cardTraceB:after{left:-3px;top:-2px}
+.cardTraceC{left:13px;bottom:37px;width:26px;height:17px;border-width:0 1px 1px 0;border-radius:0 0 7px 0}
+.cardTraceC:after{right:-3px;top:-2px}
+.cardTraceD{right:13px;bottom:37px;width:26px;height:17px;border-width:1px 0 0 1px;border-radius:7px 0 0 0}
+.cardTraceD:after{left:-3px;bottom:-2px}
+.cardChip{position:absolute;z-index:1;left:50%;top:50%;width:40px;height:48px;transform:translate(-50%,-50%);border:2px solid #e7bd6a;border-radius:3px;background:repeating-linear-gradient(90deg,transparent 0 4px,#dfb766 4px 5px,transparent 5px 7px) top/100% 5px no-repeat,repeating-linear-gradient(90deg,transparent 0 4px,#dfb766 4px 5px,transparent 5px 7px) bottom/100% 5px no-repeat,#162a34;box-shadow:0 0 9px #45dfe277,inset 0 0 8px #42eaff33}
+.cardChip:before{content:"";position:absolute;inset:6px 5px;border:1px solid #43dce1;background:linear-gradient(135deg,#214b56,#10212c);box-shadow:inset 0 0 7px #42eaff66}
+.cardChip:after{content:"IC";position:absolute;inset:0;display:grid;place-items:center;color:#f6d78f;font:900 12px/1 ui-monospace,monospace;text-shadow:0 0 6px #42eaff}
+.cardContacts{position:absolute;z-index:1;left:23px;right:23px;bottom:28px;height:5px;background:repeating-linear-gradient(90deg,#d9b56a 0 7px,#655333 7px 9px,transparent 9px 12px);box-shadow:0 0 5px #e5c36e66}
+.building{position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d}
+.buildingFace{position:absolute;transform-origin:center center;backface-visibility:visible;border:1px solid #0a1421}
+.buildingFront:before,.buildingBack:before,.buildingLeft:before,.buildingRight:before{content:'';position:absolute;inset:5px 4px;background:var(--window-pattern) center/100% 100% no-repeat}
+.buildingFront:after,.buildingBack:after,.buildingLeft:after,.buildingRight:after{content:'';position:absolute;inset:0;pointer-events:none}
+.cityStreet{position:absolute;border:1px solid #334a57;background-color:#14212b;box-shadow:inset 0 0 0 2px #0c1720,0 0 7px #22d9ed33;pointer-events:none}
+.cityStreet.horizontal:before,.cityStreet.vertical:before{content:'';position:absolute;opacity:.78}
+.cityStreet.horizontal:before{left:4px;right:4px;top:50%;height:2px;transform:translateY(-50%);background:repeating-linear-gradient(90deg,#f0c878 0 8px,transparent 8px 18px)}
+.cityStreet.vertical:before{top:4px;bottom:4px;left:50%;width:2px;transform:translateX(-50%);background:repeating-linear-gradient(180deg,#f0c878 0 8px,transparent 8px 18px)}
+.cityStreet:after{content:'';position:absolute;inset:2px;border:1px solid #65dfea30}
+.citySidewalk{position:absolute;border:1px solid #8196a444;background:#2b3b48;box-shadow:inset 0 0 5px #63e9ff2b;pointer-events:none}
+.citySidewalk:before{content:'';position:absolute;inset:0;opacity:.72}
+.citySidewalk.vertical:before{background:repeating-linear-gradient(0deg,#9bb7c333 0 1px,transparent 1px 12px),linear-gradient(90deg,#0c182344,#8297a022)}
+.citySidewalk.horizontal:before{background:repeating-linear-gradient(90deg,#9bb7c333 0 1px,transparent 1px 12px),linear-gradient(0deg,#0c182344,#8297a022)}
+.citySidewalk:after{content:'';position:absolute;background:#54efff;box-shadow:0 0 5px #42eaff,0 0 10px #42eaff77}
+.citySidewalk.vertical.road-left:after{top:0;right:0;bottom:0;width:2px}
+.citySidewalk.vertical.road-right:after{top:0;left:0;bottom:0;width:2px}
+.citySidewalk.horizontal.road-north:after{left:0;right:0;bottom:0;height:2px}
+.citySidewalk.horizontal.road-south:after{left:0;right:0;top:0;height:2px}
+.cityCrosswalk{position:absolute;border:1px solid #b8faff88;background:#142436;box-shadow:0 0 6px #35eaff66;pointer-events:none}
+.cityCrosswalk:before{content:'';position:absolute;inset:1px}
+.cityCrosswalk.vertical:before{background:repeating-linear-gradient(0deg,#9cfbff 0 2px,#ed52d3 2px 3px,transparent 3px 6px)}
+.cityCrosswalk.horizontal:before{background:repeating-linear-gradient(90deg,#9cfbff 0 2px,#ed52d3 2px 3px,transparent 3px 6px)}
+.roofSurface{position:absolute;transform-origin:center center;backface-visibility:visible;border:1px solid #8db8c555;box-shadow:inset 0 0 12px #42eaff1c}
+.obeliskFacet{border-color:#a1ecff99;box-shadow:inset 0 0 16px #42eaff44,0 0 8px #42eaff33}
+.obeliskBeacon{position:absolute;z-index:3;transform-origin:center center;backface-visibility:visible;border:1px solid #fff0f2;border-radius:50%;background:#ff4968;box-shadow:0 0 5px 2px #ff4968,0 0 14px 7px #ff214f;animation:obelisk-beacon-blink 1s steps(2,end) infinite}
+@keyframes obelisk-beacon-blink{50%{opacity:.18;box-shadow:0 0 2px 1px #ff4968}}
+.stairRoomWall,.stairRoomSide{border-color:#8deaff88;box-shadow:inset 0 0 9px #42eaff28}
+.stairRoomRoof{border-color:#b1f8ffbb;box-shadow:inset 0 0 12px #42eaff55,0 0 6px #42eaff44}
+.buildingScreen{position:absolute;z-index:1;transform-origin:center center;backface-visibility:visible;border:2px solid var(--detail-accent);border-radius:2px;background:linear-gradient(135deg,#e3ffff,#142f46 35%,#091725 72%);box-shadow:0 0 8px var(--detail-accent),0 0 18px #42eaff99;overflow:hidden}
+.buildingScreen:before{content:'';position:absolute;inset:2px;background:repeating-linear-gradient(0deg,transparent 0 3px,#e9ffff88 3px 4px),linear-gradient(110deg,transparent 18%,var(--detail-accent) 48%,#061525 82%);opacity:.92}
+.buildingScreen:after{content:attr(data-label);position:absolute;inset:1px;display:grid;place-items:center;color:#fff;font:900 7px/1 ui-monospace,monospace;letter-spacing:.04em;text-shadow:0 0 5px var(--detail-accent)}
+.helipad{position:absolute;z-index:2;transform-origin:center center;backface-visibility:visible;border:2px solid #d7fdff;border-radius:50%;background:#112b38e8;box-shadow:0 0 8px #42eaff99,inset 0 0 8px #42eaff66}
+.helipad:before{content:'';position:absolute;inset:4px;border:1px dashed #73f3ff;border-radius:50%;box-shadow:0 0 6px #42eaff66}
+.helipad:after{content:attr(data-label);position:absolute;inset:0;display:grid;place-items:center;color:#edffff;font:900 24px/1 system-ui,sans-serif;text-shadow:0 0 8px #42eaff}
+.buildingEntrance{position:absolute;z-index:1;transform-origin:center center;backface-visibility:visible;border:2px solid #ffcf89;border-bottom:0;border-radius:9px 9px 0 0;background:linear-gradient(180deg,#ffd88b 0 5%,#1acbd477 8%,#101a28 52%,#060d16 100%);box-shadow:0 0 7px #ffb56b,0 0 14px #ff8f5666}
+.buildingEntrance:before{content:'';position:absolute;inset:3px 3px 0;border:1px solid #77f5ef88;border-bottom:0;border-radius:6px 6px 0 0;background:linear-gradient(180deg,#f4c78466,transparent 35%)}
+.cityLabel{position:absolute;z-index:3;left:18px;bottom:16px;color:#dffaff;font:700 11px/1.3 ui-monospace,monospace;letter-spacing:.1em;text-shadow:0 0 8px #26dfff;pointer-events:none}
+.cityLabel span{display:block;margin-top:3px;color:#f27ed6;font-size:9px}
+@media(prefers-reduced-motion:reduce){.obeliskBeacon{animation:none}}
+</style></head><body>${portalMarkup}<div class="heading">PORTAL<span>NEON DISTRICT · 50 M BELOW</span></div>
+<script>
+window.updatePortalScene=function(state){
+ const portalScene=document.querySelector('.portalScene'),copy=document.getElementById('copy');
+ portalScene.style.perspective=state.perspective+'px';
+ portalScene.style.perspectiveOrigin=state.originX+'px '+state.originY+'px';
+ copy.style.transform=state.copyTransform;
+ copy.style.clipPath=state.bottomClip;
+ copy.style.display='block';
+};
+window.addEventListener('message',event=>{if(event.data&&event.data.type==='portal-update')window.updatePortalScene(event.data.state)});
+const windowFaces=${JSON.stringify(windowFaceData)};
+const windowColors=${JSON.stringify(windowLightColors)};
+const totalWindowPanes=windowFaces.reduce((total,face)=>total+face.states.length/2,0);
+function renderWindowFace(face){
+ const paneWidth=face.vertical?12:8;
+ const paneHeight=face.vertical?8:12;
+ const stepX=face.vertical?21:16;
+ const stepY=face.vertical?16:21;
+ const windows=[];
+ let paneIndex=0;
+ for(let y=5;y+paneHeight<face.height-5;y+=stepY){
+  for(let x=5;x+paneWidth<face.width-5;x+=stepX){
+   const stateOffset=paneIndex*2;
+   const isLit=face.states.charAt(stateOffset)==='1';
+   const colorIndex=Number(face.states.charAt(stateOffset+1));
+   const color=isLit?windowColors[colorIndex]:'#091623';
+   windows.push('<rect x="'+x+'" y="'+y+'" width="'+paneWidth+'" height="'+paneHeight+'" rx="1" fill="'+color+'" stroke="#06111d" stroke-width="1"/>');
+   paneIndex++;
+  }
+ }
+ const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+face.width+'px" height="'+face.height+'px" viewBox="0 0 '+face.width+' '+face.height+'">'+windows.join('')+'</svg>';
+ return "url('data:image/svg+xml,"+encodeURIComponent(svg)+"')";
+}
+function toggleRandomWindow(){
+ let selectedPane=Math.floor(Math.random()*totalWindowPanes);
+ let selectedFace=null;
+ let paneIndex=0;
+ for(const face of windowFaces){
+  const facePaneCount=face.states.length/2;
+  if(selectedPane<facePaneCount){
+   selectedFace=face;
+   paneIndex=selectedPane;
+   break;
+  }
+  selectedPane-=facePaneCount;
+ }
+ if(selectedFace){
+  const stateOffset=paneIndex*2;
+  const currentState=selectedFace.states.charAt(stateOffset);
+  const nextState=currentState==='1'?'0':'1';
+  selectedFace.states=selectedFace.states.slice(0,stateOffset)+nextState+selectedFace.states.slice(stateOffset+1);
+  const faceElement=document.querySelector('[data-window-face="'+selectedFace.id+'"]');
+  if(faceElement){
+   faceElement.style.setProperty('--window-pattern',renderWindowFace(selectedFace));
+  }
+ }
+ scheduleRandomWindowToggle(700,2000);
+}
+function scheduleRandomWindowToggle(minimumDelay,maximumDelay){
+ const delay=(minimumDelay+Math.random()*(maximumDelay-minimumDelay))/parent.WINDOW_LIGHT_FREQUENCY;
+ window.setTimeout(toggleRandomWindow,delay);
+}
+scheduleRandomWindowToggle(1000,2500);
+<\/script></body></html>`;
+iframe.srcdoc=iframeDoc;
+let iframeReady=false,lastIframeState=null;
+iframe.addEventListener('load',()=>{iframeReady=true;if(lastIframeState)sendIframeUpdate(lastIframeState);redraw()});
+function sendIframeUpdate(state){lastIframeState=state;if(iframeReady&&iframe.contentWindow?.updatePortalScene)iframe.contentWindow.updatePortalScene(state)}
+function cameraPosition(){
+ return {x:config.x,y:config.y,z:config.z,yaw:config.yaw,pitch:config.pitch};
+}
+function orientationMatrix(){
+ return new DOMMatrix().rotateAxisAngle(0,0,1,config.rz).rotateAxisAngle(0,1,0,config.ry).rotateAxisAngle(1,0,0,config.rx);
+}
+function groundIntersection(){
+ const matrix=orientationMatrix();
+ const a=matrix.m12,b=matrix.m22;
+ const yAt=(x,y)=>config.height+a*x+b*y;
+ const points=[{x:0,y:0},{x:PANEL_W,y:0},{x:PANEL_W,y:PANEL_H},{x:0,y:PANEL_H}];
+ const clipPolygon=keepAbove=>{
+  const out=[];
+  for(let i=0;i<points.length;i++){
+   const p=points[(i+points.length-1)%points.length],q=points[i];
+   const dp=-yAt(p.x-PANEL_W/2,p.y-PANEL_H/2),dq=-yAt(q.x-PANEL_W/2,q.y-PANEL_H/2);
+   const pInside=keepAbove?dp>=0:dp<=0;
+   const qInside=keepAbove?dq>=0:dq<=0;
+   if(pInside!==qInside){
+    const t=dp/(dp-dq);
+    out.push({x:p.x+(q.x-p.x)*t,y:p.y+(q.y-p.y)*t});
+   }
+   if(qInside)out.push(q);
+  }
+  return out.length>=3?'polygon('+out.map(p=>p.x+'px '+p.y+'px').join(',')+')':'polygon(0px 0px,0px 0px,0px 0px)';
+ };
+ return {topClip:clipPolygon(true),bottomClip:clipPolygon(false)};
+}
+let intersection=groundIntersection();
+function redraw(){
+ const cam=cameraPosition();
+ $('world').style.transform=`rotateX(${-cam.pitch}deg) rotateY(${cam.yaw}deg) translate3d(${-cam.x}px,${-cam.y}px,${-cam.z}px)`;
+ const rot=`rotateZ(${config.rz}deg) rotateY(${config.ry}deg) rotateX(${config.rx}deg)`;
+ const originalTransform=`translate3d(0px,${config.height}px,0px) ${rot}`;
+ // Floor local Z points upward in world Y. Convert the whole object transform to floor coordinates.
+ const internalTransform=`rotateX(-90deg) ${originalTransform}`;
+
+ const perspectiveHeight=Math.max(1,-cam.y);
+ const perspectiveOriginY=FLOOR/2+cam.z;
+ stage.zone.style.transform='translate3d(0px,0px,0px)';
+ stage.original.style.transform=originalTransform;
+ stage.original.style.clipPath=intersection.topClip;
+ // The ground's front normal points toward negative world Y.
+ // Keep the iframe one-sided even where Chromium ignores iframe backface culling.
+ iframe.style.visibility=cam.y<0?'visible':'hidden';
+ const {angle}=intersection;
+ sendIframeUpdate({perspective:perspectiveHeight,originX:FLOOR/2+cam.x,originY:perspectiveOriginY,
+  bottomClip:intersection.bottomClip,
+  copyTransform:`translate3d(${FLOOR/2}px,${FLOOR/2}px,0px) ${internalTransform} translate3d(${-PANEL_W/2}px,${-PANEL_H/2}px,0px)`});
+ const side=cam.y<0?'ABOVE (portal front)':cam.y>0?'BELOW (portal back)':'ON THE FLOOR';
+ $('stats').textContent=`Camera: (${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}, ${cam.z.toFixed(1)})\n`+
+ `Portal side: ${side}\n`+
+ `Portal back face: ${cam.y<0?'visible':'hidden'}\n`+
+ `Portal perspective: ${perspectiveHeight.toFixed(1)}px\n`+
+ `Perspective origin: (${(FLOOR/2+cam.x).toFixed(1)}, ${perspectiveOriginY.toFixed(1)})\n`+
+ 'The surrounding scene and its ground remain unchanged.\n' +
+ (iframeReady?'Portal ready':'Portal initializing');
+}
+for(const name of ['speed','rx','ry','rz','height']){
+ const control=$(name);
+ control.addEventListener('input',()=>{config[name]=Number(control.value);if(name!=='speed')intersection=groundIntersection();refreshLabels();redraw()});
+}
+function refreshLabels(){for(const name of ['speed','rx','ry','rz','height']){
+ const val=$(name+'Value');if(!val)continue;
+ val.textContent=['yaw','pitch','rx','ry','rz'].includes(name)?config[name].toFixed(1)+'°':
+  name==='height'?config[name].toFixed(0)+' px':config[name].toFixed(1);
+}}
+function updateSliderValues(names){for(const name of names){const control=$(name);if(control)control.value=config[name]}}
+function setConfigs(obj){Object.assign(config,obj);if(['rx','ry','rz','height'].some(name=>Object.hasOwn(obj,name)))intersection=groundIntersection();updateSliderValues(Object.keys(obj));refreshLabels();redraw()}
+function cameraFromOrbit(azimuth,elevation,distance){
+ const az=azimuth*RAD,el=elevation*RAD,horizontal=distance*Math.cos(el);
+ return {x:Math.sin(az)*horizontal,y:-Math.sin(el)*distance,
+  z:Math.cos(az)*horizontal,yaw:-azimuth,pitch:elevation};
+}
+const cameraPresets={front:cameraFromOrbit(0,15,1150),
+ oblique:cameraFromOrbit(30,47,1050),top:cameraFromOrbit(25,80,1150),below:cameraFromOrbit(25,-55,750),
+ side:cameraFromOrbit(78,43,1050)};
+for(const button of document.querySelectorAll('[data-camera]'))button.onclick=()=>setConfigs(cameraPresets[button.dataset.camera]);
+$('resetCamera').onclick=()=>setConfigs(cameraFromOrbit(0,47,1050));
+$('resetObject').onclick=()=>setConfigs({rx:27,ry:32,rz:-24,height:-15});
+const keys=new Set();
+$('viewport').addEventListener('click',()=>{
+ if(document.pointerLockElement!==$('viewport'))$('viewport').requestPointerLock();
+});
+document.addEventListener('mousemove',event=>{
+ if(document.pointerLockElement!==$('viewport'))return;
+ config.yaw+=event.movementX*0.12;
+ config.pitch=Math.max(-90,Math.min(90,config.pitch+event.movementY*0.12));
+ redraw();
+});
+document.addEventListener('keydown',event=>{
+ if(['INPUT','SELECT','TEXTAREA','BUTTON'].includes(document.activeElement.tagName)){
+  if(/^(Key[WASD]|Space|ShiftLeft|ShiftRight|ControlLeft|ControlRight|Arrow)/.test(event.code))
+   document.activeElement.blur();
+  else return;
+ }
+ if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(event.code))event.preventDefault();
+ keys.add(event.code);
+ if(event.code==='KeyH'&&!event.repeat){$('ui').hidden=!$('ui').hidden;$('help').hidden=$('ui').hidden}
+});
+document.addEventListener('keyup',event=>keys.delete(event.code));
+document.addEventListener('pointerlockchange',()=>keys.clear());
+window.addEventListener('blur',()=>keys.clear());
+let previous=performance.now();
+function tick(time){
+ const dt=Math.min(.05,(time-previous)/1000);previous=time;
+ const look=75*dt;
+ const old=[config.x,config.y,config.z,config.yaw,config.pitch];
+ if(keys.has('ArrowLeft'))config.yaw-=look;
+ if(keys.has('ArrowRight'))config.yaw+=look;
+ if(keys.has('ArrowUp'))config.pitch-=look;
+ if(keys.has('ArrowDown'))config.pitch+=look;
+ config.pitch=Math.max(-90,Math.min(90,config.pitch));
+ const forward=Number(keys.has('KeyW'))-Number(keys.has('KeyS'));
+ const right=Number(keys.has('KeyD'))-Number(keys.has('KeyA'));
+ const vertical=Number(keys.has('ShiftLeft')||keys.has('ShiftRight'))-Number(keys.has('Space'));
+ const mag=Math.hypot(forward,right,vertical)||1;
+ const step=config.speed*(keys.has('ControlLeft')||keys.has('ControlRight')?3:1)*dt/mag;
+ const yaw=config.yaw*RAD;
+ config.x+=(Math.sin(yaw)*forward+Math.cos(yaw)*right)*step;
+ config.z+=(-Math.cos(yaw)*forward+Math.sin(yaw)*right)*step;
+ config.y+=vertical*step;
+ if(old.some((value,i)=>value!==[config.x,config.y,config.z,config.yaw,config.pitch][i])){
+  redraw();
+ }
+ requestAnimationFrame(tick);
+}
+refreshLabels();redraw();requestAnimationFrame(tick);
+window.addEventListener('resize',redraw);
+window.demo={config,redraw,iframe,stage,groundIntersection,cameraPosition,get intersection(){return intersection}};
+})();
+</script>
+</body>
+</html>
