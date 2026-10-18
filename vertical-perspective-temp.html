@@ -6,7 +6,11 @@
 <title>Zombie sprite — visual anchor reconstruction</title>
 <style>
   :root {font:13px/1.45 system-ui,sans-serif;color-scheme:dark;
-    --sprite-zero-x:36.486486px;--sprite-zero-y:141.559322px}
+    --sprite-width:340px;--sprite-height:680px;--sprite-half-width:170px;
+    --sprite-left:-170px;--sprite-top:-680px;
+    --sprite-zero-x:137.837836px;--sprite-zero-y:534.779661px;
+    --ground-offset:-750px;--ground-size:1500px;--ground-tile-size:47.661076787290px;
+    --ground-scale:7.553333333333;--ground-iframe-size:11330px;--ground-iframe-offset:-5665px}
   * {box-sizing:border-box}
   html,body {margin:0;width:100%;height:100%;overflow:hidden;background:#142333;color:#e8f2ff}
   #viewport {position:fixed;inset:0;overflow:hidden;perspective:850px;perspective-origin:50% 50%;
@@ -14,25 +18,47 @@
   #scene {position:absolute;left:50%;top:50%;width:0;height:0;z-index:1;
     transform:translateZ(850px);transform-style:preserve-3d}
   #world {position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d}
-  #groundPlane {position:absolute;left:-1500px;top:-1500px;width:3000px;height:3000px;
-    transform:rotateX(90deg);transform-style:flat;backface-visibility:visible;pointer-events:none}
-  #groundPlane canvas {display:block;width:100%;height:100%}
-  .plane {position:absolute;left:-45px;top:-180px;width:90px;height:180px;
-    transform-origin:45px 180px;backface-visibility:visible;will-change:transform}
-  #sprite {left:-45px;top:-180px;transform-origin:45px 180px}
-  #sprite canvas {position:absolute;left:calc(45px - var(--sprite-zero-x));
-    top:calc(180px - var(--sprite-zero-y));display:block;width:90px;height:180px;image-rendering:pixelated;
-    transform-origin:var(--sprite-zero-x) 0}
-  #undergroundSprite {position:absolute;left:0;top:0;width:90px;height:180px;
-    display:none;pointer-events:none;transform-origin:0 0;
-    background-image:url('assets/sprites/zombie.png');background-repeat:no-repeat;image-rendering:pixelated}
+  #groundPlane {position:absolute;left:var(--ground-offset);top:var(--ground-offset);
+    width:var(--ground-size);height:var(--ground-size);
+    transform:rotateX(90deg) scale(var(--ground-scale));transform-style:flat;
+    backface-visibility:visible;pointer-events:none;
+    background-color:#4b7440;
+    background-image:url("data:image/webp;base64,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");
+    background-size:var(--ground-tile-size) var(--ground-tile-size);background-repeat:repeat}
+  #groundIframe {display:block;position:absolute;left:var(--ground-iframe-offset);top:var(--ground-iframe-offset);
+    width:var(--ground-iframe-size);height:var(--ground-iframe-size);border:0;
+    transform:rotateX(90deg);transform-origin:50% 50%;transform-style:flat;
+    pointer-events:none;backface-visibility:hidden;-webkit-backface-visibility:hidden;
+    background:transparent}
+  .plane {position:absolute;left:var(--sprite-left);top:var(--sprite-top);
+    width:var(--sprite-width);height:var(--sprite-height);
+    transform-origin:var(--sprite-half-width) var(--sprite-height);
+    backface-visibility:visible;will-change:transform}
+  #sprite {left:var(--sprite-left);top:var(--sprite-top);
+    transform-origin:var(--sprite-half-width) var(--sprite-height)}
+  .sprite-frame {position:absolute;left:calc(var(--sprite-half-width) - var(--sprite-zero-x));
+    top:calc(var(--sprite-height) - var(--sprite-zero-y));width:var(--sprite-width);
+    height:var(--sprite-height);overflow:clip;transform-origin:var(--sprite-zero-x) 0}
+  .sprite-frame img {position:absolute;left:0;top:0;display:block;max-width:none;
+    image-rendering:pixelated;user-select:none;pointer-events:none}
+  .sprite-debug-background,.sprite-debug-frame {position:absolute;inset:0;display:none;
+    pointer-events:none}
+  .sprite-debug-background {background-color:#193949;
+    background-image:repeating-linear-gradient(to bottom,#224e5b 0 4px,transparent 4px 76px,
+      #1d4351 76px 80px,transparent 80px 152px),
+      repeating-linear-gradient(to right,#48788880 0 4px,transparent 4px 57px)}
+  .sprite-debug-frame {border:11px solid #ffdc7b;
+    background:linear-gradient(to bottom,#b5e9e2 0 19px,transparent 19px calc(100% - 23px),
+      #eac677 calc(100% - 23px) 100%)}
+  .sprite-frame.show-debug .sprite-debug-background,
+  .sprite-frame.show-debug .sprite-debug-frame {display:block}
   .face {position:absolute;transform-origin:center center;backface-visibility:visible;
     display:flex;align-items:center;justify-content:center;text-align:center;
-    font-size:11px;font-weight:750;letter-spacing:.03em;color:#18252c;text-shadow:0 1px 0 #ffffff65;
-    border:1px solid #16283675;overflow:hidden;padding:2px}
+    font-size:42px;font-weight:750;letter-spacing:.03em;color:#18252c;text-shadow:0 4px 0 #ffffff65;
+    border:4px solid #16283675;overflow:hidden;padding:8px}
   .face .vertical-label {writing-mode:vertical-rl;text-orientation:mixed;white-space:nowrap}
-  .foot {position:absolute;width:12px;height:12px;left:-6px;top:-6px;border-radius:50%;
-    background:#fff8c5;box-shadow:0 0 15px #fff8c5;transform:rotateX(90deg)}
+  .foot {position:absolute;width:45px;height:45px;left:-22.5px;top:-22.5px;border-radius:50%;
+    background:#fff8c5;box-shadow:0 0 57px #fff8c5;transform:rotateX(90deg)}
   #anchorOverlay {position:fixed;inset:0;width:100%;height:100%;pointer-events:none;
     overflow:visible;z-index:5}
   .anchor-label {font:700 13px/1 ui-monospace,monospace;paint-order:stroke;
@@ -77,7 +103,68 @@
 </style>
 </head>
 <body>
-<div id="viewport"><div id="scene"><div id="world"><div id="groundPlane"><canvas id="groundCanvas"></canvas></div></div></div></div>
+<div id="viewport"><div id="scene"><div id="world"><div id="groundPlane"></div><iframe id="groundIframe" title="Submerged sprite scene" scrolling="no"></iframe></div></div></div></div>
+<template id="groundIframeTemplate">
+  <style>
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    #camera {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      transform-style: preserve-3d;
+    }
+
+    #scene {
+      position: absolute;
+      inset: 0;
+      transform-style: preserve-3d;
+    }
+
+    #clipBox {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: var(--sprite-width);
+      height: var(--sprite-height);
+      overflow: clip;
+      transform-origin: 0 0;
+      transform-style: preserve-3d;
+      pointer-events: none;
+    }
+
+    #undergroundSprite {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: var(--sprite-width);
+      height: var(--sprite-height);
+      background-image: url('assets/sprites/zombie.png');
+      background-repeat: no-repeat;
+      image-rendering: pixelated;
+      transform-origin: 0 0;
+      backface-visibility: visible;
+    }
+  </style>
+  <div id="camera">
+    <div id="scene">
+      <div id="clipBox">
+        <div id="undergroundSprite"></div>
+      </div>
+    </div>
+  </div>
+</template>
 <svg id="anchorOverlay" aria-label="Screen-space sprite and source-model foot and head anchors">
   <g id="physicalAnchorGroup" style="display:none" fill="none" stroke="#ffca69">
     <polygon id="physicalTriangle" stroke-width="2.5" stroke-dasharray="7 5" stroke-linejoin="round"/>
@@ -100,7 +187,7 @@
   </div>
   <div class="control"><label for="maxFlattening">Max flattening <output id="maxFlatteningRead"></output></label><input id="maxFlattening" type="range" min="0" max="100" step="1" value="73"></div>
   <div class="control"><label for="stretchDistribution">Head / feet split <output id="stretchDistributionRead"></output></label><input id="stretchDistribution" type="range" min="0" max="100" step="1" value="28" aria-label="Stretch offset allocated to the feet; the remainder goes to the head"></div>
-  <div class="control"><label for="speed">Flight speed <output id="speedRead"></output></label><input id="speed" type="range" min="80" max="900" step="20" value="280"></div>
+  <div class="control"><label for="speed">Flight speed <output id="speedRead"></output></label><input id="speed" type="range" min="30" max="340" step="1" value="106"></div>
   <div class="presets">
     <button data-preset="horizontal">Horizontal</button>
     <button data-preset="oblique">Oblique</button>
@@ -118,39 +205,84 @@
   const $ = id => document.getElementById(id);
   const world = $('world');
   const groundPlane = $('groundPlane');
-  const groundCanvas = $('groundCanvas');
+  const groundIframe = $('groundIframe');
   const viewport = $('viewport');
   const speedEl=$('speed'), maxFlatteningEl=$('maxFlattening');
   const stretchDistributionEl=$('stretchDistribution'), debugBoxEl=$('debugBox');
   const trianglesEl=$('showTriangles');
   const stats=$('stats'), RAD=Math.PI/180, F=850;
-  const W=90,H=180;
-  const GROUND_SINK=5; // Local sprite units sunk below the ground plane.
-  const MIN_SPRITE_PLANE_DETERMINANT=0.01;
-  const GROUND_PLANE_HALF = groundPlane.offsetWidth / 2;
-  const GROUND_GRID = 50;
-  const GROUND_MAJOR_GRID = 250;
-  const SPRITE_DRAW_HEIGHT=W*58/34;
+  // Keep scene inputs in source-sprite pixels and convert them once for 3D layout.
+  const SPRITE_PIXEL_SIZE=10;
+  const spritePixelToWorld=value=>value*SPRITE_PIXEL_SIZE;
+  const worldToSpritePixel=value=>value/SPRITE_PIXEL_SIZE;
+  const cameraPositionInSpritePixels=position=>({
+    x:worldToSpritePixel(position.x),
+    y:worldToSpritePixel(position.y),
+    z:worldToSpritePixel(position.z)
+  });
+  const SPRITE_PLANE={width:34,height:68};
+  const W=spritePixelToWorld(SPRITE_PLANE.width);
+  const H=spritePixelToWorld(SPRITE_PLANE.height);
   const SPRITE_CROP={x:0,y:0,width:34,height:58,
-    drawY:(H-SPRITE_DRAW_HEIGHT)/2,drawHeight:SPRITE_DRAW_HEIGHT};
+    drawY:(H-spritePixelToWorld(58))/2,drawHeight:spritePixelToWorld(58)};
+  const GROUND_PLANE_SIZE=spritePixelToWorld(1133);
+  const GROUND_TILE_SIZE=spritePixelToWorld(36);
+  const GROUND_BACKING_SIZE=1500;
+  const GROUND_BACKING_SCALE=GROUND_PLANE_SIZE/GROUND_BACKING_SIZE;
+  const GROUND_IFRAME_SIZE=GROUND_PLANE_SIZE;
+  const GROUND_IFRAME_HALF=GROUND_IFRAME_SIZE/2;
+  const GROUND_IFRAME_Y=0;
+  groundPlane.style.width=`${GROUND_BACKING_SIZE}px`;
+  groundPlane.style.height=`${GROUND_BACKING_SIZE}px`;
+  groundPlane.style.left=`${-GROUND_BACKING_SIZE/2}px`;
+  groundPlane.style.top=`${-GROUND_BACKING_SIZE/2}px`;
+  groundPlane.style.transform=`rotateX(90deg) scale(${GROUND_BACKING_SCALE})`;
+  groundPlane.style.backgroundSize=`${GROUND_TILE_SIZE/GROUND_BACKING_SCALE}px ${GROUND_TILE_SIZE/GROUND_BACKING_SCALE}px`;
+  groundIframe.style.width=`${GROUND_IFRAME_SIZE}px`;
+  groundIframe.style.height=`${GROUND_IFRAME_SIZE}px`;
+  groundIframe.style.left=`${-GROUND_IFRAME_HALF}px`;
+  groundIframe.style.top=`${-GROUND_IFRAME_HALF}px`;
+  groundIframe.style.transform='rotateX(90deg)';
+  const GROUND_PLANE_HALF=GROUND_PLANE_SIZE/2;
+  const MIN_SPRITE_PLANE_DETERMINANT=0.01;
+  const GROUND_CLIP_EPSILON=2;
+  const UNDERGROUND_CLIP_EPSILON=4;
   const SPRITE_SHEET={width:272,height:58,frameWidth:34};
   // [head-center X, head-center Y] pixel-bound coordinates in each 34×58 crop.
   const FRAME_CENTERS=[[13.5,7],[11.5,5.5],[11.5,5],[15,4.5],
     [17.5,4.5],[20,4.5],[19.5,5.5],[17,7]];
-  const spritePivot={x:36.486486,y:141.559322,headX:0,headY:0};
-  const PHYSICAL_ANCHORS=[[-W/2,-GROUND_SINK],[W/2,-GROUND_SINK],[0,-H]];
+  // Preserve the current fixed pivot, expressed in source-frame pixel coordinates.
+  const spritePivotImage={x:13.7837836,y:48.477966088888884};
+  const spritePivot={x:spritePixelToWorld(spritePivotImage.x),
+    y:SPRITE_CROP.drawY+spritePixelToWorld(spritePivotImage.y),headX:0,headY:0};
+  const rootStyle=document.documentElement.style;
+  rootStyle.setProperty('--sprite-width',`${W}px`);
+  rootStyle.setProperty('--sprite-height',`${H}px`);
+  rootStyle.setProperty('--sprite-half-width',`${W/2}px`);
+  rootStyle.setProperty('--sprite-left',`${-W/2}px`);
+  rootStyle.setProperty('--sprite-top',`${-H}px`);
+  rootStyle.setProperty('--sprite-zero-x',`${spritePivot.x}px`);
+  rootStyle.setProperty('--sprite-zero-y',`${spritePivot.y}px`);
+  rootStyle.setProperty('--ground-offset',`${-GROUND_BACKING_SIZE/2}px`);
+  rootStyle.setProperty('--ground-size',`${GROUND_BACKING_SIZE}px`);
+  rootStyle.setProperty('--ground-tile-size',`${GROUND_TILE_SIZE/GROUND_BACKING_SCALE}px`);
+  rootStyle.setProperty('--ground-scale',`${GROUND_BACKING_SCALE}`);
+  const PHYSICAL_ANCHORS=[[-W/2,0],[W/2,0],[0,-H]];
   let logicalFacingYaw=0;
   const SPRITE_CORNERS=[[-W/2,-H],[W/2,-H],[W/2,0],[-W/2,0]];
   const spritePosition={x:0,y:0,z:0};
-  const prismPosition={x:155,y:0,z:0};
+  const prismPosition={x:spritePixelToWorld(58.6),y:0,z:0};
   const start="overhead";
-  const presets={
-    horizontal:{x:121,y:-70,z:506,yaw:0,pitch:5},
-    oblique:{x:121,y:-191,z:358,yaw:0,pitch:38},
-    overhead:{x:35,y:-622,z:171,yaw:0,pitch:76},
-    direct:{x:0,y:-661,z:0,yaw:0,pitch:90},
-    boundary:{x:74,y:-661,z:74,yaw:0,pitch:79}
+  const logicalPresets={
+    horizontal:{x:45.7,y:-26.4,z:191.2,yaw:0,pitch:5},
+    oblique:{x:45.7,y:-72.2,z:135.2,yaw:0,pitch:38},
+    overhead:{x:13.2,y:-235.2,z:64.6,yaw:0,pitch:76},
+    direct:{x:0,y:-250.2,z:0,yaw:0,pitch:90},
+    boundary:{x:28,y:-250.2,z:28,yaw:0,pitch:79}
   };
+  const presets=Object.fromEntries(Object.entries(logicalPresets).map(([name,preset])=>
+    [name,{...preset,x:spritePixelToWorld(preset.x),y:spritePixelToWorld(preset.y),
+      z:spritePixelToWorld(preset.z)}]));
   const camera={...presets[start]};
   const observerCamera={...camera};
   let observerMode=false;
@@ -162,69 +294,79 @@
     button.setAttribute('aria-pressed',String(observerMode));
   }
   const keys=new Set();
-  // The canvas displays a directional zombie frame from assets/sprites/.
-  // An optional debug grid and frame reveal the raster bounds behind transparent pixels.
-  const img=document.createElement('canvas');
-  img.width=W; img.height=H;
-  const ctx=img.getContext('2d');
-  const groundCtx=groundCanvas.getContext('2d');
-  const undergroundEl=document.createElement('div');
-  undergroundEl.id='undergroundSprite';
-  groundPlane.append(undergroundEl);
-  const zombieImage=new Image();
+  // The clipped image element displays one directional frame from the sprite sheet.
+  const img=document.createElement('img');
+  img.alt='';
+  img.draggable=false;
+  const frameViewport=document.createElement('div');
+  frameViewport.className='sprite-frame';
+  const debugBackground=document.createElement('div');
+  debugBackground.className='sprite-debug-background';
+  const debugFrame=document.createElement('div');
+  debugFrame.className='sprite-debug-frame';
+  frameViewport.append(debugBackground,img,debugFrame);
+  let groundIframeReady=false;
+  let pendingGroundState=null;
+  let groundFrameElements=null;
+  function initializeGroundIframe(){
+    if(groundIframeReady)return;
+    const frameDocument=groundIframe.contentDocument;
+    if(!frameDocument?.body)return;
+    const frameContent=$('groundIframeTemplate').content.cloneNode(true);
+    const frameStyles=frameContent.querySelector('style');
+    frameDocument.head.replaceChildren(frameDocument.importNode(frameStyles,true));
+    frameStyles.remove();
+    frameDocument.body.replaceChildren(frameDocument.importNode(frameContent,true));
+    frameDocument.documentElement.style.setProperty('--sprite-width',`${W}px`);
+    frameDocument.documentElement.style.setProperty('--sprite-height',`${H}px`);
+    groundFrameElements={
+      camera:frameDocument.getElementById('camera'),
+      clip:frameDocument.getElementById('clipBox'),
+      sprite:frameDocument.getElementById('undergroundSprite')
+    };
+    groundIframeReady=true;
+    if(pendingGroundState)applyGroundState(pendingGroundState);
+  }
+  groundIframe.addEventListener('load',initializeGroundIframe);
+  initializeGroundIframe();
+  function applyGroundState(state){
+    const {camera,clip,sprite}=groundFrameElements;
+    camera.style.perspective=`${state.perspective}px`;
+    camera.style.perspectiveOrigin=`${state.originX}px ${state.originY}px`;
+    clip.style.display=state.visible?'block':'none';
+    if(!state.visible)return;
+    clip.style.height=`${state.height}px`;
+    clip.style.transform=state.transform;
+    sprite.style.top=`${state.offsetY}px`;
+    sprite.style.backgroundSize=state.backgroundSize;
+    sprite.style.backgroundPosition=state.backgroundPosition;
+  }
+  function sendGroundState(state){
+    pendingGroundState=state;
+    if(groundIframeReady)applyGroundState(state);
+  }
   let selectedDirection=0;
   let currentAboveGroundPolygon=null;
   let topCenter=null;
-  // Draw in order: optional debug background, directional frame, optional border.
-  function drawDebugBackground(){
-    ctx.fillStyle='#193949';ctx.fillRect(0,0,W,H);
-    for(let y=0;y<H;y+=20){
-      ctx.fillStyle=y%40===0?'#224e5b':'#1d4351';
-      ctx.fillRect(0,y,W,1);
-    }
-    for(let x=0;x<W;x+=15){ctx.fillStyle='#48788880';ctx.fillRect(x,0,1,H)}
+  function updateSpriteSheetFrame(direction){
+    const scaleX=W/SPRITE_CROP.width;
+    const scaleY=SPRITE_CROP.drawHeight/SPRITE_CROP.height;
+    img.style.left=`${-(direction*SPRITE_SHEET.frameWidth+SPRITE_CROP.x)*scaleX}px`;
+    img.style.top=`${SPRITE_CROP.drawY-SPRITE_CROP.y*scaleY}px`;
+    img.style.width=`${SPRITE_SHEET.width*scaleX}px`;
+    img.style.height=`${SPRITE_SHEET.height*scaleY}px`;
   }
-  function drawZombieTexture(){
-    if(zombieImage.complete&&zombieImage.naturalWidth){
-      ctx.imageSmoothingEnabled=false;
-      ctx.drawImage(zombieImage,selectedDirection*SPRITE_SHEET.frameWidth+SPRITE_CROP.x,SPRITE_CROP.y,
-        SPRITE_CROP.width,SPRITE_CROP.height,0,SPRITE_CROP.drawY,W,SPRITE_CROP.drawHeight);
-    }
-  }
-  function drawDebugFrame(){
-    ctx.fillStyle='#b5e9e2';ctx.fillRect(0,0,W,5);
-    ctx.fillStyle='#eac677';ctx.fillRect(0,H-6,W,6);
-    ctx.strokeStyle='#ffdc7b';ctx.lineWidth=3;
-    ctx.strokeRect(1.5,1.5,W-3,H-3);
-  }
-  // Clip the visible pixels into the source canvas, avoiding a CSS clip layer
-  // between the sprite and the ground-aligned redraw.
+  // Clip the portion above the grass while the iframe renders its submerged continuation.
   function drawSprite(aboveGroundPolygon=currentAboveGroundPolygon){
     currentAboveGroundPolygon=aboveGroundPolygon;
-    ctx.clearRect(0,0,W,H);
-    ctx.save();
     if(aboveGroundPolygon){
-      ctx.beginPath();
-      if(aboveGroundPolygon.length>=3){
-        ctx.moveTo(aboveGroundPolygon[0].x,aboveGroundPolygon[0].y);
-        for(let i=1;i<aboveGroundPolygon.length;i++)
-          ctx.lineTo(aboveGroundPolygon[i].x,aboveGroundPolygon[i].y);
-        ctx.closePath();
-      }
-      ctx.clip();
+      frameViewport.style.clipPath=aboveGroundPolygon.length>=3?
+        `polygon(${aboveGroundPolygon.map(point=>`${point.x}px ${point.y}px`).join(',')})`:
+        'polygon(0 0,0 0,0 0)';
+    }else{
+      frameViewport.style.clipPath='none';
     }
-    if(debugBoxEl.checked)drawDebugBackground();
-    drawZombieTexture();
-    if(debugBoxEl.checked)drawDebugFrame();
-    ctx.restore();
-  }
-  function updateSpriteFrameAppearance(){
-    const scaleX=W/SPRITE_CROP.width,scaleY=SPRITE_CROP.drawHeight/SPRITE_CROP.height;
-    undergroundEl.style.backgroundSize=
-      `${SPRITE_SHEET.width*scaleX}px ${SPRITE_SHEET.height*scaleY}px`;
-    undergroundEl.style.backgroundPosition=
-      `${-(selectedDirection*SPRITE_SHEET.frameWidth+SPRITE_CROP.x)*scaleX}px `+
-      `${SPRITE_CROP.drawY-SPRITE_CROP.y*scaleY}px`;
+    frameViewport.classList.toggle('show-debug',debugBoxEl.checked);
   }
   // Keep the original fixed visual pivot while tracking each frame's head center.
   function updateSpritePivot(direction){
@@ -237,26 +379,17 @@
     }
   }
   // Split the source texture where its corresponding physical geometry crosses Y=0.
-  function spriteGroundClipPolygon(submerged,pose){
-    const sourceToPlane=[[1,0,-spritePivot.x],
-      [0,1,-spritePivot.y],[0,0,1]];
-    const sourceToWorld=sourceToPlane;
+  function aboveGroundClipPolygon(pose){
     let polygon=[{x:0,y:0},{x:W,y:0},{x:W,y:H},{x:0,y:H}];
-    polygon=clipPolygonHalfPlane(polygon,point=>
-      sourceToWorld[2][0]*point.x+sourceToWorld[2][1]*point.y+
-        sourceToWorld[2][2]);
     polygon=clipPolygonHalfPlane(polygon,point=>{
-      const groundDistance=pose.origin[1]+pose.verticalAxis.y*(sourceToWorld[1][0]*point.x+
-        sourceToWorld[1][1]*point.y+sourceToWorld[1][2]);
-      return submerged?groundDistance:-groundDistance;
+      const groundDistance=pose.origin[1]+pose.verticalAxis.y*(point.y-spritePivot.y);
+      return -groundDistance-GROUND_CLIP_EPSILON;
     });
     polygon=clipPolygonHalfPlane(polygon,point=>point.y-SPRITE_CROP.drawY);
     polygon=clipPolygonHalfPlane(polygon,point=>
       SPRITE_CROP.drawY+SPRITE_CROP.drawHeight-point.y);
     return polygon;
   }
-  function undergroundClipPolygon(pose){return spriteGroundClipPolygon(true,pose)}
-  function aboveGroundClipPolygon(pose){return spriteGroundClipPolygon(false,pose)}
   function clipPolygonHalfPlane(polygon,signedDistance){
     const clipped=[];
     for(let i=0;i<polygon.length;i++){
@@ -272,36 +405,40 @@
     }
     return clipped;
   }
-  zombieImage.onload=()=>{updateSpriteFrameAppearance();drawSprite()};
+  updateSpriteSheetFrame(selectedDirection);
   debugBoxEl.addEventListener('change',()=>drawSprite());
   drawSprite();
-  updateSpriteFrameAppearance();
-  zombieImage.src='assets/sprites/zombie.png';
+  img.src='assets/sprites/zombie.png';
   // Construct the sprite, six prism faces, and their two ground markers.
   function createSprite(){
     const sprite=document.createElement('div');
-    sprite.id='sprite';sprite.className='plane';sprite.append(img);world.append(sprite);
+    sprite.id='sprite';sprite.className='plane';sprite.append(frameViewport);world.append(sprite);
     const topCenter=document.createElement('span');
     topCenter.style.cssText='position:absolute;left:50%;top:0;width:0;height:0;pointer-events:none';
     sprite.append(topCenter);
     return {sprite,topCenter};
   }
-  // Every face is a separate CSS 3D plane; face width controls whether the
-  // label is vertical (the narrow 30-unit side faces).
+  // Every face is a separate CSS 3D plane; narrow side faces use vertical labels.
   const makeFace=(name,width,height,color,x,y,z,rotation)=>{
     const el=document.createElement('div');
     el.className='face';
-    const label=document.createElement('span');label.textContent=name;
-    if(width<45)label.className='vertical-label';
+    const label=document.createElement('span');
+    label.textContent=name;
+    if(width<spritePixelToWorld(17))label.className='vertical-label';
     el.append(label);
-    el.style.width=width+'px';el.style.height=height+'px';
-    el.style.left=-width/2+'px';el.style.top=-height/2+'px';
+    el.style.width=width+'px';
+    el.style.height=height+'px';
+    el.style.left=-width/2+'px';
+    el.style.top=-height/2+'px';
     el.style.background=color;
     el.style.transform=`translate3d(${x}px,${y}px,${z}px) ${rotation}`;
     world.append(el);
   };
   function createPrism(){
-    const p=prismPosition, prismW=75, prismH=140, prismD=30;
+    const p=prismPosition;
+    const prismW=spritePixelToWorld(28);
+    const prismH=spritePixelToWorld(53);
+    const prismD=spritePixelToWorld(11);
     makeFace('FRONT',prismW,prismH,'#a1c879',p.x,-prismH/2,p.z+prismD/2,'rotateY(0deg)');
     makeFace('BACK',prismW,prismH,'#7486aa',p.x,-prismH/2,p.z-prismD/2,'rotateY(180deg)');
     makeFace('LEFT',prismD,prismH,'#5d96b6',p.x-prismW/2,-prismH/2,p.z,'rotateY(-90deg)');
@@ -310,8 +447,10 @@
     makeFace('BOTTOM',prismW,prismD,'#755a80',p.x,0,p.z,'rotateX(-90deg)');
   }
   function createGroundMarkers(){
-    const foot=document.createElement('div');foot.className='foot';
-    foot.style.transform=`translate3d(${prismPosition.x}px,-2px,${prismPosition.z}px) rotateX(90deg)`;
+    const foot=document.createElement('div');
+    foot.className='foot';
+    const markerOffset=spritePixelToWorld(-0.8);
+    foot.style.transform=`translate3d(${prismPosition.x}px,${markerOffset}px,${prismPosition.z}px) rotateX(90deg)`;
     world.append(foot);
   }
   const createdSprite=createSprite();
@@ -344,22 +483,6 @@
     return {x:(M[0][0]*x+M[0][1]*y+M[0][2])/w,
       y:(M[1][0]*x+M[1][1]*y+M[1][2])/w,w};
   }
-  function multiplyMatrices(a,b){
-    return a.map(row=>b[0].map((_,column)=>
-      row.reduce((sum,value,index)=>sum+value*b[index][column],0)));
-  }
-  function invertHomography(matrix){
-    const [[a,b,c],[d,e,f],[g,h,i]]=matrix;
-    const cofactors=[[e*i-f*h,c*h-b*i,b*f-c*e],
-      [f*g-d*i,a*i-c*g,c*d-a*f],
-      [d*h-e*g,b*g-a*h,a*e-b*d]];
-    const determinant=a*cofactors[0][0]+b*cofactors[1][0]+c*cofactors[2][0];
-    const rowProduct=matrix.reduce((product,row)=>
-      product*Math.hypot(...row),1);
-    if(!Number.isFinite(determinant)||rowProduct===0||
-      Math.abs(determinant)<=Number.EPSILON*64*rowProduct)return null;
-    return cofactors.map(row=>row.map(value=>value/determinant));
-  }
   function cameraProjectionContext(c=screenCamera()){
     const yaw=c.yaw*RAD,pitch=c.pitch*RAD;
     return {x:c.x,y:c.y,z:c.z,
@@ -380,62 +503,12 @@
     return [F*point.x+projection.centerX*point.depth,
       F*point.y+projection.centerY*point.depth,point.depth];
   }
-  // Paint the grid onto the actual 3D floor once; the floor then depth-sorts
-  // against the scene while the embedded sprite copy stays on its surface.
-  function drawGround() {
-    const width = groundCanvas.width = groundPlane.offsetWidth;
-    const height = groundCanvas.height = groundPlane.offsetHeight;
-    groundCtx.fillStyle = '#344e52';
-    groundCtx.fillRect(0, 0, width, height);
-    for (const [step, thickness, color] of [
-      [GROUND_MAJOR_GRID, 2, '#142d3660'],
-      [GROUND_GRID, 1, '#adc3ba35']
-    ]) {
-      groundCtx.fillStyle = color;
-      for (let coordinate = 0; coordinate < width; coordinate += step) {
-        groundCtx.fillRect(coordinate, 0, thickness, height);
-        groundCtx.fillRect(0, coordinate, width, thickness);
-      }
-    }
-    const markerX = GROUND_PLANE_HALF + spritePosition.x;
-    const markerY = GROUND_PLANE_HALF + spritePosition.z;
-    const glow = groundCtx.createRadialGradient(markerX, markerY, 0, markerX, markerY, 12);
-    glow.addColorStop(0, '#fff8c5');
-    glow.addColorStop(0.35, '#fff8c5c9');
-    glow.addColorStop(1, '#fff8c500');
-    groundCtx.fillStyle = glow;
-    groundCtx.beginPath();
-    groundCtx.arc(markerX, markerY, 12, 0, Math.PI * 2);
-    groundCtx.fill();
-  }
-  drawGround();
   function planeToScreenHomography(origin,basisX,basisY,projection){
     const columns=[basisX,basisY,origin].map((point,index)=>
       projectedHomogeneous(cameraCoordinates(point,projection,index<2),projection));
     return [[columns[0][0],columns[1][0],columns[2][0]],
       [columns[0][1],columns[1][1],columns[2][1]],
       [columns[0][2],columns[1][2],columns[2][2]]];
-  }
-  function cssHomographyMatrix3d(homography){
-    const [[a,b,c],[d,e,f],[g,h,i]]=homography;
-    return `matrix3d(${a},${d},0,${g},${b},${e},0,${h},0,0,1,0,${c},${f},0,${i})`;
-  }
-  function groundProjectionContext(projection){
-    const groundToScreen = planeToScreenHomography(
-      [-GROUND_PLANE_HALF, 0, -GROUND_PLANE_HALF], [1, 0, 0], [0, 0, 1], projection);
-    const screenToGround = invertHomography(groundToScreen);
-    return screenToGround ? { projection, screenToGround } : null;
-  }
-  function spriteToGroundHomography(pose,groundContext){
-    const sourceToPlane=[[1,0,-spritePivot.x],
-      [0,1,-spritePivot.y],[0,0,1]];
-    const sourceToScreen=multiplyMatrices(
-      characterPlaneProjection(pose,groundContext.projection),
-      sourceToPlane);
-    return multiplyMatrices(groundContext.screenToGround,sourceToScreen);
-  }
-  function polygonClipPath(polygon){
-    return `polygon(${polygon.map(point=>`${point.x}px ${point.y}px`).join(',')})`;
   }
   // Project the planar reconstruction of the selected directional artwork.
   // Frame selection determines the horizontal orientation; the scene camera
@@ -475,8 +548,8 @@
     const frame=spriteFrameForBearing(bearing-logicalFacingYaw);
     if(frame.direction!==selectedDirection){
       selectedDirection=frame.direction;
+      updateSpriteSheetFrame(selectedDirection);
       updateSpritePivot(frame.direction);
-      updateSpriteFrameAppearance();
     }
     return frame;
   }
@@ -493,7 +566,7 @@
     const elevation=Math.atan2(Math.abs(camera.y-spritePosition.y),radius);
     const maxFlattening=Math.max(0,Math.min(1,Number(maxFlatteningEl.value)/100));
     const feetShare=Math.max(0,Math.min(1,Number(stretchDistributionEl.value)/100));
-    const anchorSpan=H-GROUND_SINK;
+    const anchorSpan=H;
     const directionX=radius>1e-9?dx/radius:-Math.sin(camera.yaw*RAD);
     const directionZ=radius>1e-9?dz/radius:Math.cos(camera.yaw*RAD);
     const alignment=horizontalAxis.x*directionX+horizontalAxis.z*directionZ;
@@ -503,16 +576,15 @@
     const makePose=tilt=>{
       const verticalAxis={x:directionX*Math.sin(tilt),y:Math.cos(tilt),
         z:directionZ*Math.sin(tilt)};
-      const origin=[spritePosition.x+GROUND_SINK*verticalAxis.x,
-        spritePosition.y+GROUND_SINK*verticalAxis.y,
-        spritePosition.z+GROUND_SINK*verticalAxis.z];
+      // The sprite pivot is the ground origin; the lower foot pixels sink by intersection.
+      const origin=[spritePosition.x,spritePosition.y,spritePosition.z];
       // Keep the source-model triangle fixed for comparison with the transformed sprite.
       const anchors=[
         [spritePosition.x-horizontalAxis.x*W/2,spritePosition.y,
           spritePosition.z-horizontalAxis.z*W/2],
         [spritePosition.x+horizontalAxis.x*W/2,spritePosition.y,
           spritePosition.z+horizontalAxis.z*W/2],
-        [spritePosition.x,spritePosition.y+GROUND_SINK-H,spritePosition.z]
+        [spritePosition.x,spritePosition.y-H,spritePosition.z]
       ];
       return {referenceBearing:frame.referenceBearing,origin,verticalAxis,
         horizontalAxis,anchors,tilt};
@@ -586,21 +658,39 @@
     sprite.style.transform=`translate3d(${pose.origin[0]}px,${pose.origin[1]}px,${pose.origin[2]}px) `+
       css3dCharacterMatrix(pose);
   }
-  // Project the clipped source texture onto an independent ground-aligned 3D plane.
-  function updateUndergroundSprite(pose,groundContext){
-    const polygon=undergroundClipPolygon(pose);
-    if(polygon.length<3||!groundContext){
-      undergroundEl.style.display='none';
-      return;
-    }
-    const homography=spriteToGroundHomography(pose,groundContext);
-    if(homography.flat().some(value=>!Number.isFinite(value))){
-      undergroundEl.style.display='none';
-      return;
-    }
-    undergroundEl.style.clipPath=polygonClipPath(polygon);
-    undergroundEl.style.transform = cssHomographyMatrix3d(homography);
-    undergroundEl.style.display='block';
+  // The iframe projects the submerged sprite into its own small ground-aligned surface.
+  // The floor keeps its original world coverage with a smaller raster backing.
+  function updateUndergroundSprite(pose){
+    const c=screenCamera();
+    const vertical=pose.verticalAxis;
+    const clipY=Math.abs(vertical.y)>1e-8?
+      spritePivot.y+(-UNDERGROUND_CLIP_EPSILON-pose.origin[1])/vertical.y:
+      pose.origin[1]>=-UNDERGROUND_CLIP_EPSILON?0:H;
+    const start=Math.max(0,Math.min(H,clipY));
+    const visible=start<H&&vertical.y>0;
+    const span=Math.max(0,H-start);
+    const horizontal=pose.horizontalAxis;
+    const nx=-horizontal.z*vertical.y;
+    const ny=horizontal.z*vertical.x-horizontal.x*vertical.z;
+    const nz=horizontal.x*vertical.y;
+    const x=pose.origin[0]-horizontal.x*spritePivot.x+vertical.x*(start-spritePivot.y);
+    const y=pose.origin[1]+vertical.y*(start-spritePivot.y);
+    const z=pose.origin[2]-horizontal.z*spritePivot.x+vertical.z*(start-spritePivot.y);
+    const floorOrigin=[GROUND_IFRAME_HALF+x,GROUND_IFRAME_HALF+z,GROUND_IFRAME_Y-y];
+    // Convert each global sprite basis to ground-local coordinates: (X,Z,-Y).
+    const transform=`matrix3d(${horizontal.x},${horizontal.z},0,0,`+
+      `${vertical.x},${vertical.z},${-vertical.y},0,`+
+      `${nx},${nz},${-ny},0,`+
+      `${floorOrigin[0]},${floorOrigin[1]},${floorOrigin[2]},1)`;
+    const scaleX=W/SPRITE_CROP.width,scaleY=SPRITE_CROP.drawHeight/SPRITE_CROP.height;
+    sendGroundState({visible,transform,height:span,offsetY:-start,
+      perspective:Math.max(0.01,GROUND_IFRAME_Y-c.y),originX:GROUND_IFRAME_HALF+c.x,
+      originY:GROUND_IFRAME_HALF+c.z,
+      backgroundSize:`${SPRITE_SHEET.width*scaleX}px ${SPRITE_SHEET.height*scaleY}px`,
+      backgroundPosition:`${-(selectedDirection*SPRITE_SHEET.frameWidth+SPRITE_CROP.x)*scaleX}px `+
+        `${SPRITE_CROP.drawY-SPRITE_CROP.y*scaleY}px`});
+    // The grass belongs to the double-sided floor; only the internal scene is one-sided.
+    groundIframe.style.visibility=c.y<0?'visible':'hidden';
   }
   // Show the projected sampled physical reference and rendered image triangle.
   // Both are based on the same selected directional frame in this approximation.
@@ -627,11 +717,11 @@
       radiusCircle.setAttribute('stroke-dasharray','2 6');
       group.append(radiusCircle);
       for(const label of ['L','R','T','M']){
-        const circle=document.createElementNS('http://www.w3.org/2000/svg','circle');
+        const circle=document.createElementNS('http\://www.w3.org/2000/svg','circle');
         circle.setAttribute('r',label==='M'?5:dashed?7:4);
         circle.setAttribute('fill',dashed?'#0b1927':color);
         circle.setAttribute('stroke',color);circle.setAttribute('stroke-width','2.5');
-        const text=document.createElementNS('http://www.w3.org/2000/svg','text');
+        const text=document.createElementNS('http\://www.w3.org/2000/svg','text');
         text.classList.add('anchor-label');text.setAttribute('fill',color);
         text.textContent=`${prefix}-${label}`;
         group.append(circle,text);
@@ -675,9 +765,11 @@
     const {heightPx,roll}=measurement;
     const referenceBearing=logicalFacingYaw+pose.referenceBearing;
     const view=screenCamera();
+    const referencePosition=cameraPositionInSpritePixels(camera);
+    const viewPosition=cameraPositionInSpritePixels(view);
     stats.textContent=`Camera controls: ${observerMode?'OBSERVER (reference frozen)':'REFERENCE'}\n`+
-      `Reference: ${camera.x.toFixed(0)}, ${(-camera.y).toFixed(0)} high, ${camera.z.toFixed(0)} | ${camera.yaw.toFixed(0)}° / ${camera.pitch.toFixed(0)}°\n`+
-      `Screen: ${view.x.toFixed(0)}, ${(-view.y).toFixed(0)} high, ${view.z.toFixed(0)} | ${view.yaw.toFixed(0)}° / ${view.pitch.toFixed(0)}°\n`+
+      `Reference: ${referencePosition.x.toFixed(1)}, ${(-referencePosition.y).toFixed(1)} high, ${referencePosition.z.toFixed(1)} sprite px | ${camera.yaw.toFixed(0)}° / ${camera.pitch.toFixed(0)}°\n`+
+      `Screen: ${viewPosition.x.toFixed(1)}, ${(-viewPosition.y).toFixed(1)} high, ${viewPosition.z.toFixed(1)} sprite px | ${view.yaw.toFixed(0)}° / ${view.pitch.toFixed(0)}°\n`+
       `Yaw / pitch: ${camera.yaw.toFixed(0)}° / ${camera.pitch.toFixed(0)}°\n`+
       `Logical facing: ${(logicalFacingYaw/RAD).toFixed(1)}°\n`+
       `Sprite transform: visual foot/head anchor reconstruction\n`+
@@ -689,13 +781,12 @@
     placeWorld();
     const projection=cameraProjectionContext();
     const referenceProjection=cameraProjectionContext(camera);
-    const groundContext=groundProjectionContext(projection);
     const view=viewingDirection();
     const frame=selectSpriteFrame(view.bearing);
     const pose=spritePlanePose(frame,referenceProjection);
     drawSprite(aboveGroundClipPolygon(pose));
     applySpritePose(pose);
-    updateUndergroundSprite(pose,groundContext);
+    updateUndergroundSprite(pose);
     drawAnchorOverlay(pose,projection);
     const measurement=measureSprite(pose,projection);
     updateControlReadouts();
@@ -767,7 +858,8 @@
     c.y+=u*step;
   }
   function moveCamera(dt){
-    const speed=Number(speedEl.value)*(keys.has('ControlLeft')||keys.has('ControlRight')?3:1);
+    const speed=spritePixelToWorld(Number(speedEl.value))*
+      (keys.has('ControlLeft')||keys.has('ControlRight')?3:1);
     applyKeyboardLook(dt);
     applyKeyboardTranslation(speed,dt);
   }
@@ -780,7 +872,7 @@
   // Represent the current camera pose as serializable coordinates.
   function snapshotCameraJSON(){
     return {
-      position:{x:camera.x,y:camera.y,z:camera.z},
+      position:cameraPositionInSpritePixels(camera),
       orientationDegrees:{yaw:camera.yaw,pitch:camera.pitch}
     };
   }
@@ -793,7 +885,8 @@
       orientation?.yaw,orientation?.pitch];
     if(!values.every(Number.isFinite))
       throw new TypeError('Invalid camera snapshot: expected finite position and orientation values.');
-    Object.assign(camera,{x:position.x,y:position.y,z:position.z,
+    Object.assign(camera,{x:spritePixelToWorld(position.x),
+      y:spritePixelToWorld(position.y),z:spritePixelToWorld(position.z),
       yaw:orientation.yaw,pitch:orientation.pitch});
     render();
     return snapshotCameraJSON();
