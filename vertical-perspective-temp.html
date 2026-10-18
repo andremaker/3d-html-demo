@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Zombie sprite — visual anchor reconstruction</title>
+<title>Zombie sprites — visual anchor reconstruction</title>
 <style>
   :root {font:13px/1.45 system-ui,sans-serif;color-scheme:dark;
     --sprite-width:340px;--sprite-height:680px;--sprite-half-width:170px;
@@ -34,7 +34,7 @@
     width:var(--sprite-width);height:var(--sprite-height);
     transform-origin:var(--sprite-half-width) var(--sprite-height);
     backface-visibility:visible;will-change:transform}
-  #sprite {left:var(--sprite-left);top:var(--sprite-top);
+  .sprite-plane {left:var(--sprite-left);top:var(--sprite-top);
     transform-origin:var(--sprite-half-width) var(--sprite-height)}
   .sprite-frame {position:absolute;left:calc(var(--sprite-half-width) - var(--sprite-zero-x));
     top:calc(var(--sprite-height) - var(--sprite-zero-y));width:var(--sprite-width);
@@ -134,17 +134,12 @@
 
     #clipBox {
       position: absolute;
-      left: 0;
-      top: 0;
-      width: var(--sprite-width);
-      height: var(--sprite-height);
+      inset: 0;
       overflow: clip;
-      transform-origin: 0 0;
-      transform-style: preserve-3d;
       pointer-events: none;
     }
 
-    #undergroundSprite {
+    .undergroundSprite {
       position: absolute;
       left: 0;
       top: 0;
@@ -157,11 +152,9 @@
       backface-visibility: visible;
     }
   </style>
-  <div id="camera">
-    <div id="scene">
-      <div id="clipBox">
-        <div id="undergroundSprite"></div>
-      </div>
+  <div id="clipBox">
+    <div id="camera">
+      <div id="scene"></div>
     </div>
   </div>
 </template>
@@ -175,8 +168,8 @@
 </svg>
 <div id="reticle"></div>
 <section id="panel">
-  <h1>Zombie sprite — visual anchor reconstruction</h1>
-  <p>Approximates the sprite's foot and head positions from the source 3D model for more natural angles and movement.</p>
+  <h1>Zombie sprites — visual anchor reconstruction</h1>
+  <p>Approximates each sprite's foot and head positions from the source 3D model for more natural angles and movement.</p>
   <div class="toggle-row">
     <div class="toggle-control"><label class="toggle-button"><input type="checkbox" id="debugBox"><span>Sprite debug box</span></label></div>
     <div class="toggle-control"><label class="toggle-button anchor-guides"><input type="checkbox" id="showTriangles"><span>Foot/head anchor guides</span></label></div>
@@ -253,24 +246,28 @@
     [17.5,4.5],[20,4.5],[19.5,5.5],[17,7]];
   // Preserve the current fixed pivot, expressed in source-frame pixel coordinates.
   const spritePivotImage={x:13.7837836,y:48.477966088888884};
-  const spritePivot={x:spritePixelToWorld(spritePivotImage.x),
-    y:SPRITE_CROP.drawY+spritePixelToWorld(spritePivotImage.y),headX:0,headY:0};
+  const spritePivotBase={x:spritePixelToWorld(spritePivotImage.x),
+    y:SPRITE_CROP.drawY+spritePixelToWorld(spritePivotImage.y)};
   const rootStyle=document.documentElement.style;
   rootStyle.setProperty('--sprite-width',`${W}px`);
   rootStyle.setProperty('--sprite-height',`${H}px`);
   rootStyle.setProperty('--sprite-half-width',`${W/2}px`);
   rootStyle.setProperty('--sprite-left',`${-W/2}px`);
   rootStyle.setProperty('--sprite-top',`${-H}px`);
-  rootStyle.setProperty('--sprite-zero-x',`${spritePivot.x}px`);
-  rootStyle.setProperty('--sprite-zero-y',`${spritePivot.y}px`);
+  rootStyle.setProperty('--sprite-zero-x',`${spritePivotBase.x}px`);
+  rootStyle.setProperty('--sprite-zero-y',`${spritePivotBase.y}px`);
   rootStyle.setProperty('--ground-offset',`${-GROUND_BACKING_SIZE/2}px`);
   rootStyle.setProperty('--ground-size',`${GROUND_BACKING_SIZE}px`);
   rootStyle.setProperty('--ground-tile-size',`${GROUND_TILE_SIZE/GROUND_BACKING_SCALE}px`);
   rootStyle.setProperty('--ground-scale',`${GROUND_BACKING_SCALE}`);
   const PHYSICAL_ANCHORS=[[-W/2,0],[W/2,0],[0,-H]];
-  let logicalFacingYaw=0;
   const SPRITE_CORNERS=[[-W/2,-H],[W/2,-H],[W/2,0],[-W/2,0]];
-  const spritePosition={x:0,y:0,z:0};
+  // Positions use source-sprite pixels and convert to world units once per instance.
+  const spriteDefinitions=[
+    {id:'sprite',x:0,y:0,z:0,logicalFacingYaw:45},
+    {id:'sprite-secondary',x:30,y:0,z:0,logicalFacingYaw:0}
+  ];
+  const spriteInstances=[];
   const prismPosition={x:spritePixelToWorld(58.6),y:0,z:0};
   const start="overhead";
   const logicalPresets={
@@ -294,19 +291,9 @@
     button.setAttribute('aria-pressed',String(observerMode));
   }
   const keys=new Set();
-  // The clipped image element displays one directional frame from the sprite sheet.
-  const img=document.createElement('img');
-  img.alt='';
-  img.draggable=false;
-  const frameViewport=document.createElement('div');
-  frameViewport.className='sprite-frame';
-  const debugBackground=document.createElement('div');
-  debugBackground.className='sprite-debug-background';
-  const debugFrame=document.createElement('div');
-  debugFrame.className='sprite-debug-frame';
-  frameViewport.append(debugBackground,img,debugFrame);
   let groundIframeReady=false;
-  let pendingGroundState=null;
+  let pendingGroundCameraState=null;
+  const pendingUndergroundStates=new Map();
   let groundFrameElements=null;
   function initializeGroundIframe(){
     if(groundIframeReady)return;
@@ -321,44 +308,62 @@
     frameDocument.documentElement.style.setProperty('--sprite-height',`${H}px`);
     groundFrameElements={
       camera:frameDocument.getElementById('camera'),
-      clip:frameDocument.getElementById('clipBox'),
-      sprite:frameDocument.getElementById('undergroundSprite')
+      scene:frameDocument.getElementById('scene'),
+      sprites:new Map()
     };
     groundIframeReady=true;
-    if(pendingGroundState)applyGroundState(pendingGroundState);
+    for(const instance of spriteInstances)createUndergroundSpriteNode(instance);
+    if(pendingGroundCameraState)applyGroundCameraState(pendingGroundCameraState);
   }
   groundIframe.addEventListener('load',initializeGroundIframe);
   initializeGroundIframe();
-  function applyGroundState(state){
-    const {camera,clip,sprite}=groundFrameElements;
+  function applyGroundCameraState(state){
+    const {camera}=groundFrameElements;
     camera.style.perspective=`${state.perspective}px`;
     camera.style.perspectiveOrigin=`${state.originX}px ${state.originY}px`;
-    clip.style.display=state.visible?'block':'none';
+  }
+  function applyUndergroundSpriteState(instance,state){
+    const sprite=groundFrameElements.sprites.get(instance.id);
+    if(!sprite)return;
+    sprite.style.display=state.visible?'block':'none';
     if(!state.visible)return;
-    clip.style.height=`${state.height}px`;
-    clip.style.transform=state.transform;
-    sprite.style.top=`${state.offsetY}px`;
+    sprite.style.height=`${state.height}px`;
+    sprite.style.transform=state.transform;
     sprite.style.backgroundSize=state.backgroundSize;
     sprite.style.backgroundPosition=state.backgroundPosition;
   }
-  function sendGroundState(state){
-    pendingGroundState=state;
-    if(groundIframeReady)applyGroundState(state);
+  function createUndergroundSpriteNode(instance){
+    if(!groundIframeReady||instance.undergroundSprite)return;
+    const sprite=groundIframe.contentDocument.createElement('div');
+    sprite.id=instance.id==='sprite'?'undergroundSprite':`undergroundSprite-${instance.id}`;
+    sprite.className='undergroundSprite';
+    sprite.dataset.spriteId=instance.id;
+    groundFrameElements.scene.append(sprite);
+    groundFrameElements.sprites.set(instance.id,sprite);
+    instance.undergroundSprite=sprite;
+    const state=pendingUndergroundStates.get(instance.id);
+    if(state)applyUndergroundSpriteState(instance,state);
   }
-  let selectedDirection=0;
-  let currentAboveGroundPolygon=null;
-  let topCenter=null;
-  function updateSpriteSheetFrame(direction){
+  function sendGroundCameraState(state){
+    pendingGroundCameraState=state;
+    if(groundIframeReady)applyGroundCameraState(state);
+  }
+  function sendUndergroundState(instance,state){
+    pendingUndergroundStates.set(instance.id,state);
+    if(groundIframeReady)applyUndergroundSpriteState(instance,state);
+  }
+  function updateSpriteSheetFrame(instance,direction){
     const scaleX=W/SPRITE_CROP.width;
     const scaleY=SPRITE_CROP.drawHeight/SPRITE_CROP.height;
-    img.style.left=`${-(direction*SPRITE_SHEET.frameWidth+SPRITE_CROP.x)*scaleX}px`;
-    img.style.top=`${SPRITE_CROP.drawY-SPRITE_CROP.y*scaleY}px`;
-    img.style.width=`${SPRITE_SHEET.width*scaleX}px`;
-    img.style.height=`${SPRITE_SHEET.height*scaleY}px`;
+    instance.img.style.left=`${-(direction*SPRITE_SHEET.frameWidth+SPRITE_CROP.x)*scaleX}px`;
+    instance.img.style.top=`${SPRITE_CROP.drawY-SPRITE_CROP.y*scaleY}px`;
+    instance.img.style.width=`${SPRITE_SHEET.width*scaleX}px`;
+    instance.img.style.height=`${SPRITE_SHEET.height*scaleY}px`;
   }
   // Clip the portion above the grass while the iframe renders its submerged continuation.
-  function drawSprite(aboveGroundPolygon=currentAboveGroundPolygon){
-    currentAboveGroundPolygon=aboveGroundPolygon;
+  function drawSprite(instance,aboveGroundPolygon=instance.aboveGroundPolygon){
+    instance.aboveGroundPolygon=aboveGroundPolygon;
+    const frameViewport=instance.frameViewport;
     if(aboveGroundPolygon){
       frameViewport.style.clipPath=aboveGroundPolygon.length>=3?
         `polygon(${aboveGroundPolygon.map(point=>`${point.x}px ${point.y}px`).join(',')})`:
@@ -369,20 +374,18 @@
     frameViewport.classList.toggle('show-debug',debugBoxEl.checked);
   }
   // Keep the original fixed visual pivot while tracking each frame's head center.
-  function updateSpritePivot(direction){
+  function updateSpritePivot(instance,direction){
     const [headCropX,headCropY]=FRAME_CENTERS[direction];
-    spritePivot.headX=headCropX*W/SPRITE_CROP.width;
-    spritePivot.headY=SPRITE_CROP.drawY+headCropY*SPRITE_CROP.drawHeight/SPRITE_CROP.height;
-    if(topCenter){
-      topCenter.style.left=`${W/2+spritePivot.headX-spritePivot.x}px`;
-      topCenter.style.top=`${H+spritePivot.headY-spritePivot.y}px`;
-    }
+    instance.pivot.headX=headCropX*W/SPRITE_CROP.width;
+    instance.pivot.headY=SPRITE_CROP.drawY+headCropY*SPRITE_CROP.drawHeight/SPRITE_CROP.height;
+    instance.topCenter.style.left=`${W/2+instance.pivot.headX-instance.pivot.x}px`;
+    instance.topCenter.style.top=`${H+instance.pivot.headY-instance.pivot.y}px`;
   }
   // Split the source texture where its corresponding physical geometry crosses Y=0.
   function aboveGroundClipPolygon(pose){
     let polygon=[{x:0,y:0},{x:W,y:0},{x:W,y:H},{x:0,y:H}];
     polygon=clipPolygonHalfPlane(polygon,point=>{
-      const groundDistance=pose.origin[1]+pose.verticalAxis.y*(point.y-spritePivot.y);
+      const groundDistance=pose.origin[1]+pose.verticalAxis.y*(point.y-pose.pivot.y);
       return -groundDistance-GROUND_CLIP_EPSILON;
     });
     polygon=clipPolygonHalfPlane(polygon,point=>point.y-SPRITE_CROP.drawY);
@@ -405,19 +408,58 @@
     }
     return clipped;
   }
-  updateSpriteSheetFrame(selectedDirection);
-  debugBoxEl.addEventListener('change',()=>drawSprite());
-  drawSprite();
-  img.src='assets/sprites/zombie.png';
-  // Construct the sprite, six prism faces, and their two ground markers.
-  function createSprite(){
+  function createSpriteInstance(definition){
+    const img=document.createElement('img');
+    img.alt='';
+    img.draggable=false;
+    const frameViewport=document.createElement('div');
+    frameViewport.className='sprite-frame';
+    const debugBackground=document.createElement('div');
+    debugBackground.className='sprite-debug-background';
+    const debugFrame=document.createElement('div');
+    debugFrame.className='sprite-debug-frame';
+    frameViewport.append(debugBackground,img,debugFrame);
+
     const sprite=document.createElement('div');
-    sprite.id='sprite';sprite.className='plane';sprite.append(frameViewport);world.append(sprite);
+    sprite.id=definition.id;
+    sprite.className='plane sprite-plane';
+    sprite.append(frameViewport);
     const topCenter=document.createElement('span');
     topCenter.style.cssText='position:absolute;left:50%;top:0;width:0;height:0;pointer-events:none';
     sprite.append(topCenter);
-    return {sprite,topCenter};
+    world.append(sprite);
+
+    const instance={
+      id:definition.id,
+      position:{
+        x:spritePixelToWorld(definition.x),
+        y:spritePixelToWorld(definition.y),
+        z:spritePixelToWorld(definition.z)
+      },
+      logicalFacingYaw:definition.logicalFacingYaw,
+      sprite,
+      img,
+      frameViewport,
+      topCenter,
+      pivot:{...spritePivotBase,headX:0,headY:0},
+      selectedDirection:-1,
+      aboveGroundPolygon:null,
+      undergroundSprite:null
+    };
+    spriteInstances.push(instance);
+    updateSpriteSheetFrame(instance,0);
+    updateSpritePivot(instance,0);
+    img.src='assets/sprites/zombie.png';
+    createUndergroundSpriteNode(instance);
+    return instance;
   }
+  for(const definition of spriteDefinitions)createSpriteInstance(definition);
+  const primarySprite=spriteInstances[0];
+  debugBoxEl.addEventListener('change',()=>{
+    for(const instance of spriteInstances)drawSprite(instance);
+  });
+  for(const instance of spriteInstances)drawSprite(instance);
+  // Construct the prism and its ground marker once for the scene.
   // Every face is a separate CSS 3D plane; narrow side faces use vertical labels.
   const makeFace=(name,width,height,color,x,y,z,rotation)=>{
     const el=document.createElement('div');
@@ -453,10 +495,6 @@
     foot.style.transform=`translate3d(${prismPosition.x}px,${markerOffset}px,${prismPosition.z}px) rotateX(90deg)`;
     world.append(foot);
   }
-  const createdSprite=createSprite();
-  const sprite=createdSprite.sprite;
-  topCenter=createdSprite.topCenter;
-  updateSpritePivot(selectedDirection);
   createPrism();
   createGroundMarkers();
   // Convert world coordinates to camera-space lateral, vertical, and depth
@@ -532,8 +570,8 @@
     world.style.transform=`rotateX(${-c.pitch}deg) rotateY(${c.yaw}deg) `+
       `translate3d(${-c.x}px,${-c.y}px,${-c.z}px)`;
   }
-  function viewingDirection(){
-    const dx=camera.x-spritePosition.x,dz=camera.z-spritePosition.z;
+  function viewingDirection(instance){
+    const dx=camera.x-instance.position.x,dz=camera.z-instance.position.z;
     const bearing=Math.atan2(dx,dz),yaw=camera.yaw*RAD;
     return {dx,dz,bearing,yaw};
   }
@@ -544,12 +582,12 @@
     const direction=(sector+4)%8;
     return {direction,referenceBearing:(sector-4)*Math.PI/4};
   }
-  function selectSpriteFrame(bearing){
-    const frame=spriteFrameForBearing(bearing-logicalFacingYaw);
-    if(frame.direction!==selectedDirection){
-      selectedDirection=frame.direction;
-      updateSpriteSheetFrame(selectedDirection);
-      updateSpritePivot(frame.direction);
+  function selectSpriteFrame(bearing,instance){
+    const frame=spriteFrameForBearing(bearing-instance.logicalFacingYaw);
+    if(frame.direction!==instance.selectedDirection){
+      instance.selectedDirection=frame.direction;
+      updateSpriteSheetFrame(instance,instance.selectedDirection);
+      updateSpritePivot(instance,frame.direction);
     }
     return frame;
   }
@@ -558,12 +596,13 @@
   // fixed to that sampled direction, while the camera view varies continuously.
   // Measure the reference pose in projected pixels so perspective depth changes
   // are included in the anti-flattening target.
-  function spritePlanePose(frame,projection){
-    const yaw=logicalFacingYaw+frame.referenceBearing;
+  function spritePlanePose(frame,projection,instance){
+    const {position,pivot}=instance;
+    const yaw=instance.logicalFacingYaw+frame.referenceBearing;
     const horizontalAxis={x:Math.cos(yaw),z:-Math.sin(yaw)};
-    const dx=camera.x-spritePosition.x,dz=camera.z-spritePosition.z;
+    const dx=camera.x-position.x,dz=camera.z-position.z;
     const radius=Math.hypot(dx,dz);
-    const elevation=Math.atan2(Math.abs(camera.y-spritePosition.y),radius);
+    const elevation=Math.atan2(Math.abs(camera.y-position.y),radius);
     const maxFlattening=Math.max(0,Math.min(1,Number(maxFlatteningEl.value)/100));
     const feetShare=Math.max(0,Math.min(1,Number(stretchDistributionEl.value)/100));
     const anchorSpan=H;
@@ -577,17 +616,17 @@
       const verticalAxis={x:directionX*Math.sin(tilt),y:Math.cos(tilt),
         z:directionZ*Math.sin(tilt)};
       // The sprite pivot is the ground origin; the lower foot pixels sink by intersection.
-      const origin=[spritePosition.x,spritePosition.y,spritePosition.z];
+      const origin=[position.x,position.y,position.z];
       // Keep the source-model triangle fixed for comparison with the transformed sprite.
       const anchors=[
-        [spritePosition.x-horizontalAxis.x*W/2,spritePosition.y,
-          spritePosition.z-horizontalAxis.z*W/2],
-        [spritePosition.x+horizontalAxis.x*W/2,spritePosition.y,
-          spritePosition.z+horizontalAxis.z*W/2],
-        [spritePosition.x,spritePosition.y-H,spritePosition.z]
+        [position.x-horizontalAxis.x*W/2,position.y,
+          position.z-horizontalAxis.z*W/2],
+        [position.x+horizontalAxis.x*W/2,position.y,
+          position.z+horizontalAxis.z*W/2],
+        [position.x,position.y-H,position.z]
       ];
       return {referenceBearing:frame.referenceBearing,origin,verticalAxis,
-        horizontalAxis,anchors,tilt};
+        horizontalAxis,anchors,tilt,pivot};
     };
     // Preserve the original tilt result and divide its head displacement
     // between the head and feet by translating only the feet's share.
@@ -654,17 +693,26 @@
     }
     return null;
   }
-  function applySpritePose(pose){
-    sprite.style.transform=`translate3d(${pose.origin[0]}px,${pose.origin[1]}px,${pose.origin[2]}px) `+
+  function applySpritePose(instance,pose){
+    instance.sprite.style.transform=`translate3d(${pose.origin[0]}px,${pose.origin[1]}px,${pose.origin[2]}px) `+
       css3dCharacterMatrix(pose);
   }
-  // The iframe projects the submerged sprite into its own small ground-aligned surface.
-  // The floor keeps its original world coverage with a smaller raster backing.
-  function updateUndergroundSprite(pose){
+  function updateGroundCamera(){
     const c=screenCamera();
+    sendGroundCameraState({
+      perspective:Math.max(0.01,GROUND_IFRAME_Y-c.y),
+      originX:GROUND_IFRAME_HALF+c.x,
+      originY:GROUND_IFRAME_HALF+c.z
+    });
+    // The grass belongs to the double-sided floor; only the internal scene is one-sided.
+    groundIframe.style.visibility=c.y<0?'visible':'hidden';
+  }
+  // Project this sprite's submerged continuation through the shared clip box.
+  function updateUndergroundSprite(instance,pose){
     const vertical=pose.verticalAxis;
+    const pivot=instance.pivot;
     const clipY=Math.abs(vertical.y)>1e-8?
-      spritePivot.y+(-UNDERGROUND_CLIP_EPSILON-pose.origin[1])/vertical.y:
+      pivot.y+(-UNDERGROUND_CLIP_EPSILON-pose.origin[1])/vertical.y:
       pose.origin[1]>=-UNDERGROUND_CLIP_EPSILON?0:H;
     const start=Math.max(0,Math.min(H,clipY));
     const visible=start<H&&vertical.y>0;
@@ -673,9 +721,9 @@
     const nx=-horizontal.z*vertical.y;
     const ny=horizontal.z*vertical.x-horizontal.x*vertical.z;
     const nz=horizontal.x*vertical.y;
-    const x=pose.origin[0]-horizontal.x*spritePivot.x+vertical.x*(start-spritePivot.y);
-    const y=pose.origin[1]+vertical.y*(start-spritePivot.y);
-    const z=pose.origin[2]-horizontal.z*spritePivot.x+vertical.z*(start-spritePivot.y);
+    const x=pose.origin[0]-horizontal.x*pivot.x+vertical.x*(start-pivot.y);
+    const y=pose.origin[1]+vertical.y*(start-pivot.y);
+    const z=pose.origin[2]-horizontal.z*pivot.x+vertical.z*(start-pivot.y);
     const floorOrigin=[GROUND_IFRAME_HALF+x,GROUND_IFRAME_HALF+z,GROUND_IFRAME_Y-y];
     // Convert each global sprite basis to ground-local coordinates: (X,Z,-Y).
     const transform=`matrix3d(${horizontal.x},${horizontal.z},0,0,`+
@@ -683,14 +731,10 @@
       `${nx},${nz},${-ny},0,`+
       `${floorOrigin[0]},${floorOrigin[1]},${floorOrigin[2]},1)`;
     const scaleX=W/SPRITE_CROP.width,scaleY=SPRITE_CROP.drawHeight/SPRITE_CROP.height;
-    sendGroundState({visible,transform,height:span,offsetY:-start,
-      perspective:Math.max(0.01,GROUND_IFRAME_Y-c.y),originX:GROUND_IFRAME_HALF+c.x,
-      originY:GROUND_IFRAME_HALF+c.z,
+    sendUndergroundState(instance,{visible,transform,height:span,
       backgroundSize:`${SPRITE_SHEET.width*scaleX}px ${SPRITE_SHEET.height*scaleY}px`,
-      backgroundPosition:`${-(selectedDirection*SPRITE_SHEET.frameWidth+SPRITE_CROP.x)*scaleX}px `+
-        `${SPRITE_CROP.drawY-SPRITE_CROP.y*scaleY}px`});
-    // The grass belongs to the double-sided floor; only the internal scene is one-sided.
-    groundIframe.style.visibility=c.y<0?'visible':'hidden';
+      backgroundPosition:`${-(instance.selectedDirection*SPRITE_SHEET.frameWidth+SPRITE_CROP.x)*scaleX}px `+
+        `${SPRITE_CROP.drawY-SPRITE_CROP.y*scaleY-start}px`});
   }
   // Show the projected sampled physical reference and rendered image triangle.
   // Both are based on the same selected directional frame in this approximation.
@@ -744,8 +788,8 @@
     group.style.display='';
   }
   function measureSprite(pose,projection){
-    const sourceHead=[spritePivot.headX-spritePivot.x,
-      spritePivot.headY-spritePivot.y];
+    const sourceHead=[pose.pivot.headX-pose.pivot.x,
+      pose.pivot.headY-pose.pivot.y];
     const fromSprite=characterPlaneProjection(pose,projection);
     const head=transform3(fromSprite,...sourceHead);
     const foot=transform3(fromSprite,0,0);
@@ -761,9 +805,9 @@
     const feetShare=Number(stretchDistributionEl.value);
     $('stretchDistributionRead').textContent=`${100-feetShare}% / ${feetShare}%`;
   }
-  function updateStats(pose,measurement){
+  function updateStats(instance,pose,measurement){
     const {heightPx,roll}=measurement;
-    const referenceBearing=logicalFacingYaw+pose.referenceBearing;
+    const referenceBearing=instance.logicalFacingYaw+pose.referenceBearing;
     const view=screenCamera();
     const referencePosition=cameraPositionInSpritePixels(camera);
     const viewPosition=cameraPositionInSpritePixels(view);
@@ -771,7 +815,7 @@
       `Reference: ${referencePosition.x.toFixed(1)}, ${(-referencePosition.y).toFixed(1)} high, ${referencePosition.z.toFixed(1)} sprite px | ${camera.yaw.toFixed(0)}° / ${camera.pitch.toFixed(0)}°\n`+
       `Screen: ${viewPosition.x.toFixed(1)}, ${(-viewPosition.y).toFixed(1)} high, ${viewPosition.z.toFixed(1)} sprite px | ${view.yaw.toFixed(0)}° / ${view.pitch.toFixed(0)}°\n`+
       `Yaw / pitch: ${camera.yaw.toFixed(0)}° / ${camera.pitch.toFixed(0)}°\n`+
-      `Logical facing: ${(logicalFacingYaw/RAD).toFixed(1)}°\n`+
+      `Logical facing: ${(instance.logicalFacingYaw/RAD).toFixed(1)}°\n`+
       `Sprite transform: visual foot/head anchor reconstruction\n`+
       `Selected frame bearing: ${(referenceBearing/RAD).toFixed(1)}°\n`+
       `Projected centerline: ${heightPx.toFixed(1)} px; angle ${roll.toFixed(1)}°\n`+
@@ -781,17 +825,23 @@
     placeWorld();
     const projection=cameraProjectionContext();
     const referenceProjection=cameraProjectionContext(camera);
-    const view=viewingDirection();
-    const frame=selectSpriteFrame(view.bearing);
-    const pose=spritePlanePose(frame,referenceProjection);
-    drawSprite(aboveGroundClipPolygon(pose));
-    applySpritePose(pose);
-    updateUndergroundSprite(pose);
-    drawAnchorOverlay(pose,projection);
-    const measurement=measureSprite(pose,projection);
+    updateGroundCamera();
+    let primaryState=null;
+    for(const instance of spriteInstances){
+      const view=viewingDirection(instance);
+      const frame=selectSpriteFrame(view.bearing,instance);
+      const pose=spritePlanePose(frame,referenceProjection,instance);
+      drawSprite(instance,aboveGroundClipPolygon(pose));
+      applySpritePose(instance,pose);
+      updateUndergroundSprite(instance,pose);
+      if(instance!==primarySprite)continue;
+      drawAnchorOverlay(pose,projection);
+      const measurement=measureSprite(pose,projection);
+      primaryState={frame,pose,measurement};
+      updateStats(instance,pose,measurement);
+    }
     updateControlReadouts();
-    updateStats(pose,measurement);
-    return {frame,pose,measurement};
+    return primaryState;
   }
   // Input event routing -> camera controls -> frame stepping.
   function usePreset(button){
@@ -894,12 +944,12 @@
   // Expose renderer state for programmatic diagnostics.
   window.snapshotCameraJSON=snapshotCameraJSON;
   window.applyCameraSnapshot=applyCameraSnapshot;
-  window.__labTest={camera,observerCamera,render,topCenter,
+  window.__labTest={camera,observerCamera,render,topCenter:primarySprite.topCenter,
     get observerMode(){return observerMode},
     set observerMode(value){observerMode=Boolean(value);updateCameraButtons()},
     snapshotCameraJSON,applyCameraSnapshot,
-    get logicalFacingYaw(){return logicalFacingYaw},
-    set logicalFacingYaw(value){logicalFacingYaw=value}};
+    get logicalFacingYaw(){return primarySprite.logicalFacingYaw},
+    set logicalFacingYaw(value){primarySprite.logicalFacingYaw=value}};
   requestAnimationFrame(animate);
 })();
 </script>
