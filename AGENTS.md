@@ -5,6 +5,7 @@
 - Confirm the exact target file, version, and requested outcome before changing or evaluating code. Do not confuse separate demos or revisions.
 - Treat “why?” and other questions as requests for explanation, not orders to edit, revert, or otherwise change files. Answer the question directly; make changes only when the user asks for them.
 - Preserve all behavior outside the requested scope. Make the smallest coherent diff; avoid unrelated cleanup, redesign, renaming, styling, or dependency changes. Review the diff before finishing.
+- For renderer geometry and transforms, calculate the resulting value directly from the inputs. Do not calculate an intermediate visual target and then search or invert to recover the value.
 - Establish the *expected* behavior before calling something a bug. An observed difference from a convenient reference is not proof of incorrectness.
 - Separate measurements and verified observations from hypotheses and untested explanations. Do not claim a test passed unless it was actually run.
 - Verify the final behavior in the real application when possible, including appropriate regressions; do not substitute source inspection or correct math for rendered correctness.
