@@ -468,7 +468,7 @@
     };
     const originTarget=document.createElement('div');
     originTarget.className='sprite-origin-target';
-    originTarget.style.left=`${GROUND_BACKING_SIZE/2+instance.position.x/GROUND_BACKING_SCALE}px`;
+    originTarget.style.left=`${GROUND_BACKING_SIZE/2+(instance.position.x+spritePixelToWorld(4))/GROUND_BACKING_SCALE}px`;
     originTarget.style.top=`${GROUND_BACKING_SIZE/2+instance.position.z/GROUND_BACKING_SCALE}px`;
     groundPlane.append(originTarget);
     spriteInstances.push(instance);
