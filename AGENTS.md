@@ -5,6 +5,7 @@
 - Confirm the exact target file, version, and requested outcome before changing or evaluating code. Do not confuse separate demos or revisions.
 - Treat “why?” and other questions as requests for explanation, not orders to edit, revert, or otherwise change files. Answer the question directly; make changes only when the user asks for them.
 - Preserve all behavior outside the requested scope. Make the smallest coherent diff; avoid unrelated cleanup, redesign, renaming, styling, or dependency changes. Review the diff before finishing.
+- Name code elements by their verified responsibility and domain meaning, not by incidental wording used to describe a request, appearance, or implementation history. Establish what an element represents before naming it, use the project’s agreed domain terms, and keep related identifiers consistent. Omit qualifiers already clear from the owning object or local context; include them only when needed to distinguish different roles. Preserve names explicitly chosen by the user; do not use this rule to justify unrelated renaming.
 - For renderer geometry and transforms, calculate the resulting value directly from the inputs. Do not calculate an intermediate visual target and then search or invert to recover the value.
 - Establish the *expected* behavior before calling something a bug. An observed difference from a convenient reference is not proof of incorrectness.
 - Separate measurements and verified observations from hypotheses and untested explanations. Do not claim a test passed unless it was actually run.

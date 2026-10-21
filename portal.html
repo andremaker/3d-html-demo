@@ -102,6 +102,8 @@ button:hover{background:#35627a}
 'use strict';
 const $=id=>document.getElementById(id), RAD=Math.PI/180;
 const FLOOR=520, PANEL_W=122, PANEL_H=202, F=900;
+const UNDERGROUND_EDGE_OVERLAP=1.5;
+const CLIP_BOX_WIDTH=FLOOR;
 const CITY_PIXELS_PER_METER=10;
 const CITY_FLOOR_Z=-50*CITY_PIXELS_PER_METER;
 window.WINDOW_LIGHT_FREQUENCY=40; // Higher values make pane changes happen more often.
@@ -172,7 +174,7 @@ function renderWindowTexture(face){
    paneIndex++;
   }
  }
- const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+face.width+'px" height="'+face.height+'px" viewBox="0 0 '+face.width+' '+face.height+'">'+windows.join('')+'</svg>';
+ const svg='<svg xmlns="http\://www.w3.org/2000/svg" width="'+face.width+'px" height="'+face.height+'px" viewBox="0 0 '+face.width+' '+face.height+'">'+windows.join('')+'</svg>';
  return "url('data:image/svg+xml,"+encodeURIComponent(svg)+"')";
 }
 function createWindowTexture(name,width,height){
@@ -322,7 +324,8 @@ for(const row of buildingRows){
   cityBuildings.push(`<div class="building" data-height="${height} m" data-roof="${roofType}" style="left:calc(50% + ${buildingX}px);top:calc(50% + ${positionRow.y}px);transform:translateZ(${CITY_FLOOR_Z}px)">${faces.join('')}</div>`);
  }
 }
-const portalMarkup=`<div class="portalScene"><div class="portalSky"></div><div class="cityWorld"><div class="cityGround"></div>${citySidewalks.join('')}${cityStreets.join('')}${cityCrosswalks.join('')}${cityBuildings.join('')}<div id="scene"><div class="art" id="copy"><div class="artSkin"><div class="cardHeader"><strong>▲ TOP / 07</strong><span>NEON PASS</span></div><div class="cardTrace cardTraceA"></div><div class="cardTrace cardTraceB"></div><div class="cardTrace cardTraceC"></div><div class="cardTrace cardTraceD"></div><div class="cardChip"></div><div class="cardContacts"></div><div class="cardFooter"><span>ACCESS NODE</span><span>0427 / SECURE</span></div></div></div></div></div><div class="cityLabel">NEON DISTRICT<span>50 M BELOW SURFACE · 20 TOWERS</span></div></div>`;
+const portalMarkup=`<div class="portalScene"><div class="portalSky"></div><div class="cityLabel">NEON DISTRICT<span>50 M BELOW SURFACE · 20 TOWERS</span></div></div>`;
+const cityMarkup=`<div class="cityWorld"><div class="cityGround"></div>${citySidewalks.join('')}${cityStreets.join('')}${cityCrosswalks.join('')}${cityBuildings.join('')}</div>`;
 const windowFaceData=windowLightFaces.map(face=>({
  id:face.id,
  width:face.width,
@@ -334,11 +337,13 @@ const iframeDoc=`<!doctype html><html><head><meta charset="utf-8"><style>
 html,body{position:relative;margin:0;width:100%;height:100%;overflow:hidden;background:#091421}
 *{box-sizing:border-box}
 .heading{position:absolute;z-index:5;left:18px;top:16px;font:800 19px/1.2 system-ui,sans-serif;letter-spacing:.035em;color:#d4f6ff;text-shadow:0 1px 2px #001725;pointer-events:none}.heading span{display:block;font-size:11px;letter-spacing:.02em;font-weight:500;color:#b0cbd0;margin-top:3px}
-.portalScene{position:absolute;z-index:0;inset:0;overflow:hidden;background:#101a2c;perspective:${F}px;perspective-origin:50% 50%}
+.portalScene{position:absolute;z-index:0;inset:0;overflow:hidden;background:#101a2c}
 .portalSky{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 55%,#d43b8c55,transparent 42%),radial-gradient(ellipse at 24% 45%,#14d5e944,transparent 38%),linear-gradient(180deg,#10192f 0%,#1b2c45 52%,#071420 100%)}
 .cityWorld{position:absolute;inset:0;transform-style:preserve-3d;transform-origin:50% 50%}
 .cityGround{position:absolute;left:50%;top:50%;width:1800px;height:1800px;margin-left:-900px;margin-top:-900px;transform:translateZ(${CITY_FLOOR_Z}px);background-color:#081823;background-image:linear-gradient(90deg,transparent 49.6%,#54edff77 49.9%,#54edff77 50.1%,transparent 50.4%),repeating-linear-gradient(0deg,#39dce844 0 1px,transparent 1px 42px),repeating-linear-gradient(90deg,#39dce833 0 1px,transparent 1px 52px),repeating-linear-gradient(0deg,transparent 0 167px,#ec49ca55 167px 169px,transparent 169px 334px)}
+#camera{position:absolute;inset:0;transform-style:preserve-3d;pointer-events:none}
 #scene{position:absolute;inset:0;transform-style:preserve-3d}
+#clipBox{position:absolute;left:260px;top:260px;width:520px;height:520px;overflow:clip;transform-style:preserve-3d;transform-origin:0 0;pointer-events:none}
 .art{position:absolute;left:0;top:0;width:122px;height:202px;transform-origin:0 0;backface-visibility:visible}
 .artSkin{position:absolute;inset:0;overflow:hidden;border:4px solid #c9aa61;background:radial-gradient(ellipse at 50% 40%,#1a3b46,#0b1c27 72%);box-shadow:inset 0 0 0 2px #213846,0 0 0 1px #121826}
 .artSkin:before{content:"";position:absolute;z-index:0;inset:7px;border:1px solid #53e8de55;box-shadow:inset 0 0 14px #35cdd733}
@@ -400,14 +405,14 @@ html,body{position:relative;margin:0;width:100%;height:100%;overflow:hidden;back
 .cityLabel{position:absolute;z-index:3;left:18px;bottom:16px;color:#dffaff;font:700 11px/1.3 ui-monospace,monospace;letter-spacing:.1em;text-shadow:0 0 8px #26dfff;pointer-events:none}
 .cityLabel span{display:block;margin-top:3px;color:#f27ed6;font-size:9px}
 @media(prefers-reduced-motion:reduce){.obeliskBeacon{animation:none}}
-</style></head><body>${portalMarkup}<div class="heading">PORTAL<span>NEON DISTRICT · 50 M BELOW</span></div>
+</style></head><body>${portalMarkup}<div id="camera">${cityMarkup}<div id="scene"><div id="clipBox"><div class="art" id="copy"><div class="artSkin"><div class="cardHeader"><strong>▲ TOP / 07</strong><span>NEON PASS</span></div><div class="cardTrace cardTraceA"></div><div class="cardTrace cardTraceB"></div><div class="cardTrace cardTraceC"></div><div class="cardTrace cardTraceD"></div><div class="cardChip"></div><div class="cardContacts"></div><div class="cardFooter"><span>ACCESS NODE</span><span>0427 / SECURE</span></div></div></div></div></div></div><div class="heading">PORTAL<span>NEON DISTRICT · 50 M BELOW</span></div>
 <script>
 window.updatePortalScene=function(state){
- const portalScene=document.querySelector('.portalScene'),copy=document.getElementById('copy');
- portalScene.style.perspective=state.perspective+'px';
- portalScene.style.perspectiveOrigin=state.originX+'px '+state.originY+'px';
+ const camera=document.getElementById('camera'),clipBox=document.getElementById('clipBox'),copy=document.getElementById('copy');
+ camera.style.perspective=state.perspective+'px';
+ camera.style.perspectiveOrigin=state.originX+'px '+state.originY+'px';
+ clipBox.style.transform=state.clipTransform;
  copy.style.transform=state.copyTransform;
- copy.style.clipPath=state.bottomClip;
  copy.style.display='block';
 };
 window.addEventListener('message',event=>{if(event.data&&event.data.type==='portal-update')window.updatePortalScene(event.data.state)});
@@ -431,7 +436,7 @@ function renderWindowFace(face){
    paneIndex++;
   }
  }
- const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+face.width+'px" height="'+face.height+'px" viewBox="0 0 '+face.width+' '+face.height+'">'+windows.join('')+'</svg>';
+ const svg='<svg xmlns="http\://www.w3.org/2000/svg" width="'+face.width+'px" height="'+face.height+'px" viewBox="0 0 '+face.width+' '+face.height+'">'+windows.join('')+'</svg>';
  return "url('data:image/svg+xml,"+encodeURIComponent(svg)+"')";
 }
 function toggleRandomWindow(){
@@ -478,13 +483,17 @@ function orientationMatrix(){
 function groundIntersection(){
  const matrix=orientationMatrix();
  const a=matrix.m12,b=matrix.m22;
+ const normalLength=Math.hypot(a,b);
+ const angle=Math.atan2(-a,b)/RAD;
+ const start=normalLength>1e-12?(-config.height-UNDERGROUND_EDGE_OVERLAP)/normalLength:config.height<=0?-CLIP_BOX_WIDTH:CLIP_BOX_WIDTH;
  const yAt=(x,y)=>config.height+a*x+b*y;
  const points=[{x:0,y:0},{x:PANEL_W,y:0},{x:PANEL_W,y:PANEL_H},{x:0,y:PANEL_H}];
  const clipPolygon=keepAbove=>{
   const out=[];
   for(let i=0;i<points.length;i++){
    const p=points[(i+points.length-1)%points.length],q=points[i];
-   const dp=-yAt(p.x-PANEL_W/2,p.y-PANEL_H/2),dq=-yAt(q.x-PANEL_W/2,q.y-PANEL_H/2);
+   const dp=-yAt(p.x-PANEL_W/2,p.y-PANEL_H/2),
+         dq=-yAt(q.x-PANEL_W/2,q.y-PANEL_H/2);
    const pInside=keepAbove?dp>=0:dp<=0;
    const qInside=keepAbove?dq>=0:dq<=0;
    if(pInside!==qInside){
@@ -495,7 +504,7 @@ function groundIntersection(){
   }
   return out.length>=3?'polygon('+out.map(p=>p.x+'px '+p.y+'px').join(',')+')':'polygon(0px 0px,0px 0px,0px 0px)';
  };
- return {topClip:clipPolygon(true),bottomClip:clipPolygon(false)};
+ return {angle,start,topClip:clipPolygon(true)};
 }
 let intersection=groundIntersection();
 function redraw(){
@@ -505,7 +514,6 @@ function redraw(){
  const originalTransform=`translate3d(0px,${config.height}px,0px) ${rot}`;
  // Floor local Z points upward in world Y. Convert the whole object transform to floor coordinates.
  const internalTransform=`rotateX(-90deg) ${originalTransform}`;
-
  const perspectiveHeight=Math.max(1,-cam.y);
  const perspectiveOriginY=FLOOR/2+cam.z;
  stage.zone.style.transform='translate3d(0px,0px,0px)';
@@ -514,10 +522,10 @@ function redraw(){
  // The ground's front normal points toward negative world Y.
  // Keep the iframe one-sided even where Chromium ignores iframe backface culling.
  iframe.style.visibility=cam.y<0?'visible':'hidden';
- const {angle}=intersection;
+ const {angle,start}=intersection;
  sendIframeUpdate({perspective:perspectiveHeight,originX:FLOOR/2+cam.x,originY:perspectiveOriginY,
-  bottomClip:intersection.bottomClip,
-  copyTransform:`translate3d(${FLOOR/2}px,${FLOOR/2}px,0px) ${internalTransform} translate3d(${-PANEL_W/2}px,${-PANEL_H/2}px,0px)`});
+  clipTransform:`${internalTransform} rotateZ(${angle}deg) translate3d(${-CLIP_BOX_WIDTH/2}px,${start}px,0px)`,
+  copyTransform:`translate3d(${CLIP_BOX_WIDTH/2}px,${-start}px,0px) rotateZ(${-angle}deg) translate3d(${-PANEL_W/2}px,${-PANEL_H/2}px,0px)`});
  const side=cam.y<0?'ABOVE (portal front)':cam.y>0?'BELOW (portal back)':'ON THE FLOOR';
  $('stats').textContent=`Camera: (${cam.x.toFixed(1)}, ${cam.y.toFixed(1)}, ${cam.z.toFixed(1)})\n`+
  `Portal side: ${side}\n`+
