@@ -217,6 +217,8 @@
   const stats=$('stats'), RAD=Math.PI/180, F=850;
   // Keep scene inputs in source-sprite pixels and convert them once for 3D layout.
   const SPRITE_PIXEL_SIZE=10;
+  const HEAD_TOP_SCREEN_FACING=false;
+  const HEAD_MAX_FRAME_ELEVATION=45;
   const spritePixelToWorld=value=>value*SPRITE_PIXEL_SIZE;
   const worldToSpritePixel=value=>value/SPRITE_PIXEL_SIZE;
   const cameraPositionInSpritePixels=position=>({
@@ -247,28 +249,66 @@
   const MIN_SPRITE_PLANE_DETERMINANT=0.01;
   const GROUND_CLIP_EPSILON=2;
   const UNDERGROUND_CLIP_EPSILON=4;
-  // Every image contains eight equal-width directional frames at full image height.
   const SPRITE_FRAME_COUNT=8;
   const spriteDefinitions={
     zombie:{src:'assets/sprites/zombie.png',pivot:{x:23,y:69}},
-    alchemist:{src:'assets/sprites/alchemist.png',pivot:{x:30,y:78}}
+    alchemist:{src:'assets/sprites/alchemist.png'}
   };
-  // Image dimensions belong to the loaded assets, not the definitions or logical state.
-  const spriteImages=new Map(await Promise.all(Object.entries(spriteDefinitions).map(async ([id,definition])=>{
-    const image=new Image();
-    await new Promise((resolve,reject)=>{
-      image.onload=resolve;
-      image.onerror=()=>reject(new Error(`Unable to load sprite: ${definition.src}`));
-      image.src=definition.src;
-    });
-    return [id,image];
-  })));
-  function deriveSpriteArtwork(sprite){
-    const definition=spriteDefinitions[sprite],image=spriteImages.get(sprite);
-    return {src:definition.src,
-      width:spritePixelToWorld(image.naturalWidth/SPRITE_FRAME_COUNT),
-      height:spritePixelToWorld(image.naturalHeight),
-      pivot:{x:spritePixelToWorld(definition.pivot.x),y:spritePixelToWorld(definition.pivot.y)}};
+  // Atlas geometry comes from the matching JSON; legacy sheets use eight full-height frames.
+  const spriteAssets=new Map((await Promise.all(Object.entries(spriteDefinitions).map(async ([id,definition])=>{
+    try{
+      const image=new Image();
+      const loaded=new Promise((resolve,reject)=>{
+        image.onload=resolve;
+        image.onerror=()=>reject(new Error(`Unable to load sprite: ${definition.src}`));
+        image.src=definition.src;
+      });
+      const metadataURL=definition.src.replace(/\.png$/i,'.json');
+      const metadataRequest=fetch(metadataURL).then(response=>{
+        if(response.status===404)return null;
+        if(!response.ok)throw new Error(`Unable to load metadata: ${metadataURL}`);
+        return response.json();
+      }).catch(error=>{console.warn(error.message);return null;});
+      const [,metadata]=await Promise.all([loaded,metadataRequest]);
+      let frames=metadata?.frames;
+      if(!frames){
+        if(!definition.pivot){console.warn(`Skipping artwork without metadata: ${definition.src}`);return [id,null];}
+        frames=Array.from({length:SPRITE_FRAME_COUNT},(_,direction)=>({
+          part:'body',pose:'idle',angle:direction*45,vertical_angle:0,
+          rect:[direction*image.naturalWidth/SPRITE_FRAME_COUNT,0,image.naturalWidth/SPRITE_FRAME_COUNT,image.naturalHeight],
+          origin:[definition.pivot.x,definition.pivot.y],contacts:{}
+        }));
+      }
+      if(!Array.isArray(frames)||!frames.length)throw new Error(`Invalid frame metadata: ${definition.src}`);
+      return [id,{image,frames}];
+    }catch(error){console.warn(error.message);return [id,null];}
+  }))).filter(([,asset])=>asset));
+  const wrapDegrees=angle=>((angle+180)%360+360)%360-180;
+  function selectFrame(frames,part,pose,yaw,pitch){
+    let candidates=frames.filter(frame=>frame.part===part&&frame.pose===pose);
+    // This atlas calls the default head pose "neutral".
+    if(!candidates.length&&part==='head'&&pose==='default')
+      candidates=frames.filter(frame=>frame.part==='head'&&frame.pose==='neutral');
+    if(part==='head')candidates=candidates.filter(frame=>frame.vertical_angle<=HEAD_MAX_FRAME_ELEVATION);
+    if(!candidates.length)throw new Error(`Missing ${part} pose: ${pose}`);
+    if(pitch!==undefined){
+      const target=Math.round(pitch/45)*45;
+      const elevation=candidates.reduce((best,frame)=>
+        Math.abs(frame.vertical_angle-target)<Math.abs(best-target)?frame.vertical_angle:best,candidates[0].vertical_angle);
+      candidates=candidates.filter(frame=>frame.vertical_angle===elevation);
+    }
+    const target=wrapDegrees(Math.round(yaw/45)*45);
+    return candidates.reduce((best,frame)=>
+      frame.angle===null||Math.abs(wrapDegrees(frame.angle-target))<Math.abs(wrapDegrees(best.angle-target))?frame:best);
+  }
+  function deriveSpriteArtwork(sprite,frame){
+    const definition=spriteDefinitions[sprite],asset=spriteAssets.get(sprite);
+    frame??=selectFrame(asset.frames,'body','idle',0);
+    return {src:definition.src,frame,
+      width:spritePixelToWorld(frame.rect[2]),height:spritePixelToWorld(frame.rect[3]),
+      atlasWidth:spritePixelToWorld(asset.image.naturalWidth),atlasHeight:spritePixelToWorld(asset.image.naturalHeight),
+      offsetX:spritePixelToWorld(frame.rect[0]),offsetY:spritePixelToWorld(frame.rect[1]),
+      pivot:{x:spritePixelToWorld(frame.origin[0]),y:spritePixelToWorld(frame.origin[1])}};
   }
   const rootStyle=document.documentElement.style;
   rootStyle.setProperty('--ground-offset',`${-GROUND_BACKING_SIZE/2}px`);
@@ -281,23 +321,26 @@
     alchemist:{sprite:'alchemist'}
   };
   // Original instances own placement and override character defaults as needed.
-  // Positions remain in source-pixel units; facing is in radians.
+  // Positions use source pixels; body facing uses radians and relative head angles use degrees.
   const originalInstances=[
-    {id:'sprite',character:'zombie',position:{x:0,y:0,z:0},logicalFacingYaw:45},
-    {id:'sprite-secondary',character:'zombie',position:{x:30,y:0,z:0},logicalFacingYaw:0},
-    {id:'alchemist',character:'alchemist',position:{x:-40,y:0,z:0},logicalFacingYaw:0}
-  ].map(instance=>structuredClone({...characterDefinitions[instance.character],...instance}));
+    {id:'alchemist1',character:'alchemist',position:{x:-40,y:0,z:20},logicalFacingYaw:45},
+    {id:'alchemist2',character:'alchemist',position:{x:10,y:0,z:-10},logicalFacingYaw:0},
+  ].map(instance=>structuredClone({pose:'idle',head:{pose:'default',yaw:0,pitch:0,forced:false},
+    ...characterDefinitions[instance.character],...instance}));
   const currentInstances=structuredClone(originalInstances);
   // Renderer-owned DOM references are not part of instance logical state.
   const instanceViews=new Map();
   function deriveInstanceArtwork(instance){
-    const art=deriveSpriteArtwork(instance.sprite);
-    return {...instance,...instanceViews.get(instance.id),art,
-      position:{x:spritePixelToWorld(instance.position.x),
-        y:spritePixelToWorld(instance.position.y),z:spritePixelToWorld(instance.position.z)},
+    const position={x:spritePixelToWorld(instance.position.x),
+      y:spritePixelToWorld(instance.position.y),z:spritePixelToWorld(instance.position.z)};
+    const bearing=Math.atan2(camera.x-position.x,camera.z-position.z);
+    const frame=selectFrame(spriteAssets.get(instance.sprite).frames,'body',instance.pose,
+      (bearing-instance.logicalFacingYaw)/RAD);
+    const art=deriveSpriteArtwork(instance.sprite,frame);
+    return {...instance,view:instanceViews.get(instance.id),art,position,
       pivot:{...art.pivot,headX:0,headY:0}};
   }
-  const prismPosition={x:spritePixelToWorld(58.6),y:0,z:0};
+  const prismPosition={x:spritePixelToWorld(58.6),y:0,z:-100};
   const start="overhead";
   const logicalPresets={
     horizontal:{x:45.7,y:-26.4,z:191.2,yaw:0,pitch:5},
@@ -341,7 +384,7 @@
     };
     groundIframeReady=true;
     for(const instance of currentInstances)
-      createUndergroundSpriteNode(deriveInstanceArtwork(instance));
+      if(spriteAssets.has(instance.sprite))createUndergroundSpriteNode(deriveInstanceArtwork(instance));
     if(pendingGroundCameraState)applyGroundCameraState(pendingGroundCameraState);
   }
   groundIframe.addEventListener('load',initializeGroundIframe);
@@ -384,16 +427,16 @@
     pendingUndergroundStates.set(instance.id,state);
     if(groundIframeReady)applyUndergroundSpriteState(instance,state);
   }
-  function updateSpriteSheetFrame(instance,direction){
-    const {width,height}=instance.art;
-    instance.img.style.left=`${-direction*width}px`;
-    instance.img.style.top='0px';
-    instance.img.style.width=`${width*SPRITE_FRAME_COUNT}px`;
-    instance.img.style.height=`${height}px`;
+  function updateSpriteSheetFrame(instance){
+    const {offsetX,offsetY,atlasWidth,atlasHeight}=instance.art;
+    instance.view.img.style.left=`${-offsetX}px`;
+    instance.view.img.style.top=`${-offsetY}px`;
+    instance.view.img.style.width=`${atlasWidth}px`;
+    instance.view.img.style.height=`${atlasHeight}px`;
   }
   // Clip the portion above the grass while the iframe renders its submerged continuation.
   function drawSprite(instance,aboveGroundPolygon=null){
-    const frameViewport=instance.frameViewport;
+    const frameViewport=instance.view.frameViewport;
     if(aboveGroundPolygon){
       frameViewport.style.clipPath=aboveGroundPolygon.length>=3?
         `polygon(${aboveGroundPolygon.map(point=>`${point.x}px ${point.y}px`).join(',')})`:
@@ -408,8 +451,8 @@
     const {width:W,height:H}=instance.art;
     instance.pivot.headX=W/2;
     instance.pivot.headY=0;
-    instance.topCenter.style.left=`${W/2+instance.pivot.headX-instance.pivot.x}px`;
-    instance.topCenter.style.top=`${H+instance.pivot.headY-instance.pivot.y}px`;
+    instance.view.topCenter.style.left=`${W/2+instance.pivot.headX-instance.pivot.x}px`;
+    instance.view.topCenter.style.top=`${H+instance.pivot.headY-instance.pivot.y}px`;
   }
   // Both sides of the ground use the final composed source-frame geometry.
   function spriteTexturePolygon(instance){
@@ -462,15 +505,25 @@
     topCenter.style.cssText='position:absolute;left:50%;top:0;width:0;height:0;pointer-events:none';
     sprite.append(topCenter);
     world.append(sprite);
+    // The head shares the body transform; the overhead view uses camera-space placement.
+    const head=document.createElement('div');
+    head.id=`${instance.id}-head`;
+    head.className='head';
+    head.style.cssText='position:absolute;left:0;top:0;width:0;height:0;transform-style:preserve-3d';
+    const headFrame=document.createElement('div');
+    headFrame.className='head-frame';
+    headFrame.style.cssText='position:absolute;overflow:clip;background-repeat:no-repeat;image-rendering:pixelated';
+    head.append(headFrame);
+    sprite.append(head);
 
     const positionMarker=document.createElement('div');
     positionMarker.className='position-marker';
     groundPlane.append(positionMarker);
-    instanceViews.set(instance.id,{sprite,img,frameViewport,topCenter,positionMarker});
+    instanceViews.set(instance.id,{sprite,img,frameViewport,topCenter,positionMarker,head,headFrame});
   }
   function updateInstanceView(instance){
-    const {art,sprite,img,positionMarker}=instance;
-    instance.frameViewport.style.height=`${art.height}px`;
+    const {art,view:{sprite,img,positionMarker}}=instance;
+    instance.view.frameViewport.style.height=`${art.height}px`;
     for(const [key,value] of Object.entries({
       'width':art.width,'height':art.height,'half-width':art.width/2,
       'left':-art.width/2,'top':-art.height,
@@ -496,7 +549,7 @@
     el.className='face';
     const label=document.createElement('span');
     label.textContent=name;
-    if(width<spritePixelToWorld(17))label.className='vertical-label';
+    if(width<spritePixelToWorld(15))label.className='vertical-label';
     el.append(label);
     el.style.width=width+'px';
     el.style.height=height+'px';
@@ -508,8 +561,8 @@
   };
   function createPrism(){
     const p=prismPosition;
-    const prismW=spritePixelToWorld(28);
-    const prismH=spritePixelToWorld(53);
+    const prismW=spritePixelToWorld(33);
+    const prismH=spritePixelToWorld(90);
     const prismD=spritePixelToWorld(11);
     makeFace('FRONT',prismW,prismH,'#a1c879',p.x,-prismH/2,p.z+prismD/2,'rotateY(0deg)');
     makeFace('BACK',prismW,prismH,'#7486aa',p.x,-prismH/2,p.z-prismD/2,'rotateY(180deg)');
@@ -601,24 +654,68 @@
     world.style.transform=`rotateX(${-c.pitch}deg) rotateY(${c.yaw}deg) `+
       `translate3d(${-c.x}px,${-c.y}px,${-c.z}px)`;
   }
-  function viewingDirection(instance){
-    const dx=camera.x-instance.position.x,dz=camera.z-instance.position.z;
-    const bearing=Math.atan2(dx,dz),yaw=camera.yaw*RAD;
-    return {dx,dz,bearing,yaw};
-  }
-  function spriteFrameForBearing(bearing){
-    // Frame zero faces forward; advance one frame per 45-degree viewing sector.
-    const normalizedBearing=(((bearing+Math.PI)%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
-    const sector=Math.round(normalizedBearing/(Math.PI/4))%8;
-    const direction=(sector+4)%8;
-    return {direction,referenceBearing:(sector-4)*Math.PI/4};
-  }
-  function selectSpriteFrame(bearing,instance){
-    const frame=spriteFrameForBearing(bearing-instance.logicalFacingYaw);
-    instance.selectedDirection=frame.direction;
-    updateSpriteSheetFrame(instance,frame.direction);
+  function selectSpriteFrame(instance){
+    const referenceBearing=wrapDegrees(instance.art.frame.angle)*RAD;
+    updateSpriteSheetFrame(instance);
     updateSpritePivot(instance);
-    return frame;
+    return {direction:instance.art.frame.angle/45,referenceBearing};
+  }
+  function setHeadAngles(id,yaw,pitch,{forced=false}={}){
+    const instance=currentInstances.find(instance=>instance.id===id);
+    if(!instance||![yaw,pitch].every(Number.isFinite))throw new TypeError('Invalid instance or head angles');
+    Object.assign(instance.head,{yaw:forced?yaw:Math.max(-90,Math.min(90,yaw)),
+      pitch:forced?pitch:Math.max(-45,Math.min(90,pitch)),forced});
+    render();
+  }
+  function updateHead(instance){
+    const {head,headFrame}=instance.view,contact=instance.art.frame.contacts?.head;
+    if(!contact){head.style.display='none';return;}
+    const point=instance.spriteToWorld.transformPoint(new DOMPoint(
+      spritePixelToWorld(contact[0]),spritePixelToWorld(contact[1])));
+    const attachment={x:point.x/point.w,y:point.y/point.w,z:point.z/point.w};
+    // Select from the reference camera, independently of the viewing camera's orientation.
+    const dx=camera.x-attachment.x,dz=camera.z-attachment.z;
+    let up=attachment.y-camera.y;
+    const bodyYaw=instance.logicalFacingYaw,bodyPitch=instance.logicalFacingPitch||0;
+    let right=Math.cos(bodyYaw)*dx-Math.sin(bodyYaw)*dz;
+    let forward=Math.sin(bodyYaw)*dx+Math.cos(bodyYaw)*dz;
+    [forward,up]=[Math.cos(bodyPitch)*forward+Math.sin(bodyPitch)*up,
+      -Math.sin(bodyPitch)*forward+Math.cos(bodyPitch)*up];
+    const frames=spriteAssets.get(instance.sprite).frames;
+    const neutralFrame=selectFrame(frames,'head',instance.head.pose,
+      Math.atan2(right,forward)/RAD,Math.atan2(up,Math.hypot(right,forward))/RAD);
+    const yaw=(instance.head.forced?instance.head.yaw:Math.max(-90,Math.min(90,instance.head.yaw)))*RAD;
+    const pitch=(instance.head.forced?instance.head.pitch:Math.max(-45,Math.min(90,instance.head.pitch)))*RAD;
+    [right,forward]=[Math.cos(yaw)*right-Math.sin(yaw)*forward,Math.sin(yaw)*right+Math.cos(yaw)*forward];
+    [forward,up]=[Math.cos(pitch)*forward+Math.sin(pitch)*up,-Math.sin(pitch)*forward+Math.cos(pitch)*up];
+    const frame=selectFrame(frames,'head',instance.head.pose,
+      Math.atan2(right,forward)/RAD,Math.atan2(up,Math.hypot(right,forward))/RAD);
+    const art=deriveSpriteArtwork(instance.sprite,frame);
+    // Use the same sector as the +90° head frame with relative head angles (0, 0).
+    const overhead=HEAD_TOP_SCREEN_FACING&&neutralFrame.vertical_angle===90;
+    if(overhead){
+      if(head.parentElement!==$('scene'))$('scene').append(head);
+      const view=cameraSpace(attachment.x,attachment.y-spritePixelToWorld(14),attachment.z);
+      head.style.left='0px';head.style.top='0px';
+      head.style.display=view.depth>0.01?'block':'none';
+      head.style.transform=`translate3d(${view.x}px,${view.y}px,${-view.depth}px)`;
+    }else{
+      if(head.parentElement!==instance.view.sprite)instance.view.sprite.append(head);
+      head.style.left=`${instance.art.width/2-instance.pivot.x+spritePixelToWorld(contact[0])}px`;
+      head.style.top=`${instance.art.height-instance.pivot.y+spritePixelToWorld(contact[1])}px`;
+      head.style.transform='none';head.style.display='block';
+    }
+    headFrame.style.left=`${-art.pivot.x}px`;headFrame.style.top=`${-art.pivot.y}px`;
+    headFrame.style.width=`${art.width}px`;headFrame.style.height=`${art.height}px`;
+    // The canonical top frame faces down in the image. Rotate about its attachment origin.
+    const rotation=frame.vertical_angle===90&&frame.angle===null?
+      (overhead?-(bodyYaw+yaw+screenCamera().yaw*RAD):wrapDegrees(instance.art.frame.angle)*RAD-yaw):0;
+    headFrame.style.transformOrigin=`${art.pivot.x}px ${art.pivot.y}px`;
+    headFrame.style.transform=rotation?`rotate(${rotation}rad)`:'none';
+    headFrame.style.backgroundImage=`url('${art.src}')`;
+    headFrame.style.backgroundSize=`${art.atlasWidth}px ${art.atlasHeight}px`;
+    headFrame.style.backgroundPosition=`${-art.offsetX}px ${-art.offsetY}px`;
+    head.dataset.angle=String(frame.angle);head.dataset.elevation=String(frame.vertical_angle);
   }
   // Undo the directional view already encoded by the artwork when placing
   // its frame-local triangle in world space. Within a sector the 3D plane is
@@ -679,10 +776,10 @@
     return distributeStretch(makePose(Math.min(idealTilt,tiltLimit)));
   }
   function applySpritePose(instance,pose){
-    instance.sprite.style.transform=`translate3d(${pose.origin[0]}px,${pose.origin[1]}px,${pose.origin[2]}px) `+
+    instance.view.sprite.style.transform=`translate3d(${pose.origin[0]}px,${pose.origin[1]}px,${pose.origin[2]}px) `+
       css3dCharacterMatrix(pose);
     // Include the frame's offset from the plane's transform origin.
-    instance.spriteToWorld=new DOMMatrix(getComputedStyle(instance.sprite).transform)
+    instance.spriteToWorld=new DOMMatrix(getComputedStyle(instance.view.sprite).transform)
       .translate(-instance.pivot.x,-instance.pivot.y);
   }
   function updateGroundCamera(){
@@ -697,7 +794,7 @@
   }
   // Project this sprite's submerged continuation through the shared clip box.
   function updateUndergroundSprite(instance){
-    const {width,height}=instance.art;
+    const {atlasWidth,atlasHeight,offsetX,offsetY}=instance.art;
     const polygon=groundClipPolygon(instance,true);
     // Convert the composed world geometry directly into ground-local (X,Z,-Y).
     const worldToGround=new DOMMatrix([
@@ -713,12 +810,12 @@
     sendUndergroundState(instance,{visible:polygon.length>=3,transform,
       width:right-left,height:bottom-top,
       clipPath:`polygon(${polygon.map(point=>`${point.x-left}px ${point.y-top}px`).join(',')})`,
-      backgroundSize:`${width*SPRITE_FRAME_COUNT}px ${height}px`,
-      backgroundPosition:`${-instance.selectedDirection*width-left}px ${-top}px`});
+      backgroundSize:`${atlasWidth}px ${atlasHeight}px`,
+      backgroundPosition:`${-offsetX-left}px ${-offsetY-top}px`});
   }
   // Show the projected sampled physical reference and rendered image triangle.
   // Both are based on the same selected directional frame in this approximation.
-  function drawAnchorOverlay(pose,projection){
+  function drawAnchorOverlay(pose,projection,art){
     const spriteGroup=$('spriteAnchorGroup'),physicalGroup=$('physicalAnchorGroup');
     spriteGroup.style.display='none';physicalGroup.style.display='none';
     if(!trianglesEl.checked)return;
@@ -726,7 +823,7 @@
     const physicalPoints=pose.anchors.map(([x,y,z])=>projectWorld(x,y,z));
     drawAnchorGroup(physicalGroup,$('physicalTriangle'),physicalPoints,'#ffca69','P',true);
     const spriteProjection=characterPlaneProjection(pose,projection);
-    const {width,height}=deriveSpriteArtwork(diagnosticInstance.sprite);
+    const {width,height}=art;
     const spritePoints=[[-width/2,0],[width/2,0],[0,-height]].map(([u,v])=>{
       const w=1+pose.widthTaper*v;
       return transform3(spriteProjection,
@@ -813,19 +910,32 @@
     updateGroundCamera();
     let primaryState=null;
     for(const logicalInstance of currentInstances){
+      const view=instanceViews.get(logicalInstance.id),available=spriteAssets.has(logicalInstance.sprite);
+      view.sprite.style.display=available?'block':'none';
+      view.positionMarker.hidden=!available;
+      if(!available){
+        view.head.style.display='none';
+        const underground=groundFrameElements?.sprites.get(logicalInstance.id);
+        if(underground)underground.style.display='none';
+        continue;
+      }
       const instance=deriveInstanceArtwork(logicalInstance);
       updateInstanceView(instance);
-      const view=viewingDirection(instance);
-      const frame=selectSpriteFrame(view.bearing,instance);
+      const frame=selectSpriteFrame(instance);
       const pose=spritePlanePose(frame,instance);
       applySpritePose(instance,pose);
       drawSprite(instance,aboveGroundClipPolygon(instance));
       updateUndergroundSprite(instance);
+      updateHead(instance);
       if(logicalInstance!==diagnosticInstance)continue;
-      drawAnchorOverlay(pose,projection);
+      drawAnchorOverlay(pose,projection,instance.art);
       const measurement=measureSprite(pose,projection);
       primaryState={frame,pose,measurement};
       updateStats(instance,pose,measurement);
+    }
+    if(!primaryState){
+      stats.textContent=`Artwork unavailable for ${diagnosticInstance.id}.`;
+      $('spriteAnchorGroup').style.display='none';$('physicalAnchorGroup').style.display='none';
     }
     updateControlReadouts();
     return primaryState;
@@ -938,14 +1048,16 @@
   window.snapshotCameraJSON=snapshotCameraJSON;
   window.applyCameraSnapshot=applyCameraSnapshot;
   window.__labTest={camera,observerCamera,render,topCenter:instanceViews.get(diagnosticInstance.id).topCenter,
-    spriteDefinitions,characterDefinitions,originalInstances,currentInstances,
+    spriteDefinitions,characterDefinitions,originalInstances,currentInstances,setHeadAngles,
+    getBodyFrame:id=>{const instance=currentInstances.find(instance=>instance.id===id);
+      return instance&&spriteAssets.has(instance.sprite)?deriveInstanceArtwork(instance).art.frame:null},
     get observerMode(){return observerMode},
     set observerMode(value){observerMode=Boolean(value);updateCameraButtons()},
     snapshotCameraJSON,applyCameraSnapshot,
     get logicalFacingYaw(){return diagnosticInstance.logicalFacingYaw},
     set logicalFacingYaw(value){diagnosticInstance.logicalFacingYaw=value}};
   requestAnimationFrame(animate);
-})();
+})().catch(error=>{console.error(error);document.getElementById('stats').textContent=error.message;});
 </script>
 </body>
 </html>
